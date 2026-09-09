@@ -3,7 +3,7 @@
 //
 // CONTRATO ESPERADO — implemente isto no app de abastecimento:
 //
-//   GET /api/painel-tv
+//   GET /api/painel-tv?periodo=hoje|7dias|30dias|mes  (padrão: 7dias)
 //   Header: X-API-Key: <mesmo valor de ABASTECIMENTO_API_KEY aqui>
 //   200 OK, corpo JSON:
 //   {
@@ -12,12 +12,13 @@
 //     "totalLitros": 4230.5,
 //     "custoTotal": 25120.30,
 //     "qtdAbastecimentos": 58,
-//     "pendentesAprovacao": 3,                  // status aguardando aprovação
-//     "porPosto": [ { "chave": "Posto Central", "litros": 1800, "custo": 10800 }, ... ],
+//     "pendentesAprovacao": 3,                  // status aguardando aprovação (fila, não janela de tempo)
+//     "porTipoCombustivel": [ { "chave": "DIESEL", "litros": 1800, "custo": 10800 }, ... ],
 //     "porVeiculo": [ { "chave": "QCP2G44 · Ranger", "litros": 320, "custo": 1920 }, ... ],
 //     "bombonas": [                             // reservatórios/bombonas de campo
 //       { "nome": "Bombona Norte", "litrosRestantes": 1200, "capacidade": 5000 }, ...
-//     ]
+//     ],
+//     "custoPorMes": [ { "mes": "2026-04", "custo": 18230.5 }, ... ]  // últimos 6 meses, fixo (não segue o `periodo`)
 //   }
 //
 // Qualquer campo que ainda não exista pode vir null/[]/0 — o front-end da
@@ -39,13 +40,17 @@ function emptyAbastecimento(motivo) {
     custoTotal: null,
     qtdAbastecimentos: null,
     pendentesAprovacao: null,
-    porPosto: [],
+    porTipoCombustivel: [],
     porVeiculo: [],
     bombonas: [],
+    custoPorMes: [],
   };
 }
 
-export async function fetchAbastecimento() {
+// `periodo`: 'hoje' | '7dias' | '30dias' | 'mes' — repassado como query
+// string para o endpoint do sistema de abastecimento (ver contrato acima).
+// Vem do filtro de período clicável na tela (ver public/app.js).
+export async function fetchAbastecimento(periodo = '7dias') {
   const url = process.env.ABASTECIMENTO_API_URL;
   const apiKey = process.env.ABASTECIMENTO_API_KEY;
 
@@ -56,7 +61,8 @@ export async function fetchAbastecimento() {
   }
 
   try {
-    const res = await fetch(url, {
+    const urlComPeriodo = `${url}${url.includes('?') ? '&' : '?'}periodo=${encodeURIComponent(periodo)}`;
+    const res = await fetch(urlComPeriodo, {
       headers: { 'X-API-Key': apiKey },
       signal: AbortSignal.timeout(15000),
     });

@@ -180,6 +180,55 @@ function sum(arr) {
   return arr.reduce((acc, n) => acc + (n ?? 0), 0);
 }
 
+// ── Presets do filtro de período do painel da TV ─────────────────────────────
+// 'hoje' | '7dias' | '30dias' | 'mes' — mesmas 4 opções que aparecem como
+// botões na tela (ver public/app.js) e mesmo critério usado no sistema de
+// abastecimento (repositório Abast, backend/server.js: periodoParaIntervalo),
+// só que em JS puro (aqui não há banco — os dados vêm da planilha inteira já
+// em memória).
+function periodoParaIntervalo(periodo) {
+  const hoje = new Date();
+  const fmt = (d) => d.toISOString().slice(0, 10);
+  const fim = fmt(hoje);
+  let inicio;
+  let label;
+  switch (periodo) {
+    case 'hoje':
+      inicio = fim;
+      label = 'hoje';
+      break;
+    case '30dias':
+      inicio = fmt(new Date(hoje.getTime() - 29 * 86400000));
+      label = 'últimos 30 dias';
+      break;
+    case 'mes':
+      inicio = fmt(new Date(hoje.getFullYear(), hoje.getMonth(), 1));
+      label = 'este mês';
+      break;
+    case '7dias':
+    default:
+      inicio = fmt(new Date(hoje.getTime() - 6 * 86400000));
+      label = 'últimos 7 dias';
+      break;
+  }
+  return { inicio, fim, label };
+}
+
+// Filtra as ordens pela janela [inicio, fim], usando a data da parada como
+// referência (ou a data de saída, se a parada não tiver sido preenchida na
+// planilha) — mesma lógica do `date::date BETWEEN` usado no lado do
+// abastecimento. Ordem sem nenhuma das duas datas fica fora do período (não
+// dá pra saber quando ela aconteceu).
+function filtrarPorPeriodo(ordens, periodo) {
+  const { inicio, fim, label } = periodoParaIntervalo(periodo);
+  const filtradas = ordens.filter((o) => {
+    const data = o.dataParada || o.dataSaida;
+    if (!data) return false;
+    return data >= inicio && data <= fim;
+  });
+  return { filtradas, label };
+}
+
 function groupSumCount(ordens, keyFn) {
   const map = new Map();
   for (const o of ordens) {
@@ -195,11 +244,14 @@ function groupSumCount(ordens, keyFn) {
 
 // Separado de fetchManutencao() para poder testar o parsing/cálculo com um
 // buffer local (sem precisar autenticar no Graph) — ver server/test-run.mjs.
-export function computeFromBuffer(buffer) {
+// `periodo`: 'hoje' | '7dias' | '30dias' | 'mes' — vem do filtro clicável na
+// tela (ver public/app.js), repassado por fetchManutencao/server/index.js.
+export function computeFromBuffer(buffer, periodo = '7dias') {
   const workbook = XLSX.read(buffer, { type: 'array', cellDates: true });
   const raw = rowsFromSheet(workbook, SHEET_NAME);
   const grupos = groupByPedido(raw);
-  const ordens = grupos.map(buildOrdemFromGrupo);
+  const todasOrdens = grupos.map(buildOrdemFromGrupo);
+  const { filtradas: ordens, label: periodoLabel } = filtrarPorPeriodo(todasOrdens, periodo);
 
   const confirmadas = ordens.filter((o) => o.custoConfirmado !== null);
   const pendentes = ordens.filter((o) => o.custoConfirmado === null);
@@ -210,6 +262,7 @@ export function computeFromBuffer(buffer) {
 
   return {
     geradoEm: new Date().toISOString(),
+    periodo: periodoLabel,
     totalOrdens: ordens.length,
     custoConfirmado: sum(confirmadas.map((o) => o.custoConfirmado)),
     custoPendenteEstimado: sum(pendentes.map((o) => o.custoPendenteEstimado)),
@@ -233,8 +286,8 @@ export function computeFromBuffer(buffer) {
   };
 }
 
-export async function fetchManutencao() {
+export async function fetchManutencao(periodo = '7dias') {
   const { downloadWorkbookByName } = await import('./sharepoint.js');
   const buffer = await downloadWorkbookByName(FILENAME);
-  return computeFromBuffer(buffer);
+  return computeFromBuffer(buffer, periodo);
 }
