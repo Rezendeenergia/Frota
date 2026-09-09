@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1920, initial-scale=1">
+<title>Painel Operacional · Rezende Energia</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+  :root{
+    --page:            #0e0d0a;
+    --surface:         #17150f;
+    --surface-2:       #1e1b13;
+    --text-primary:    #f8f5ec;
+    --text-secondary:  #c9c2ac;
+    --text-muted:      #8f8973;
+    --border:          rgba(248,245,236,0.09);
+    --accent:          #f0a344;
+    --accent-soft:     rgba(240,163,68,0.14);
+
+    --series-blue:     #4b93e8;
+    --series-orange:   #ef7d47;
+    --series-teal:     #2bc79a;
+
+    --status-good:     #22c55e;
+    --status-warning:  #fab219;
+    --status-serious:  #ec835a;
+    --status-critical: #ef4444;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; height:100%; }
+  body{
+    background:
+      radial-gradient(1200px 600px at 12% -10%, rgba(240,163,68,0.07), transparent 60%),
+      var(--page);
+    color:var(--text-primary);
+    font-family:"IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    overflow:hidden;
+  }
+  h1,h2,h3,.fig{ font-family:"Archivo", system-ui, sans-serif; }
+
+  .shell{ height:100vh; display:flex; flex-direction:column; padding: 26px 34px 22px; gap:20px; }
+
+  /* header */
+  header{ display:flex; align-items:center; justify-content:space-between; }
+  .brand{ display:flex; align-items:center; gap:16px; }
+  .brand .mark{
+    width:44px; height:44px; border-radius:11px; background:var(--accent);
+    display:flex; align-items:center; justify-content:center; font-weight:800;
+    color:#1c1408; font-size:19px; font-family:"Archivo",sans-serif; flex:none;
+  }
+  .brand .titles h1{ font-size:23px; font-weight:800; margin:0; letter-spacing:-0.01em; }
+  .brand .titles .sub{ font-size:13.5px; color:var(--text-muted); margin-top:1px; }
+  .clockbox{ text-align:right; }
+  .clockbox .clock{ font-size:30px; font-weight:700; font-variant-numeric:tabular-nums; line-height:1; }
+  .clockbox .date{ font-size:13px; color:var(--text-muted); margin-top:4px; text-transform:capitalize; }
+
+  /* status strip */
+  .status-strip{
+    display:flex; align-items:center; gap:10px; font-size:12.5px; color:var(--text-muted);
+    padding: 9px 16px; background:var(--surface); border:1px solid var(--border); border-radius:10px;
+  }
+  .status-strip .dot{ width:8px; height:8px; border-radius:50%; background:var(--status-good); flex:none; }
+  .status-strip.stale .dot{ background:var(--status-warning); }
+  .status-strip b{ color:var(--text-secondary); font-weight:600; }
+  .status-strip .sep{ opacity:.4; }
+
+  /* columns */
+  .columns{ flex:1; display:grid; grid-template-columns: repeat(3, 1fr); gap:20px; min-height:0; }
+  .col{
+    background:var(--surface); border:1px solid var(--border); border-radius:16px;
+    padding:22px 24px 20px; display:flex; flex-direction:column; gap:16px; min-height:0; overflow:hidden;
+  }
+  .col-head{ display:flex; align-items:center; justify-content:space-between; }
+  .col-head .eyebrow{ font-size:12px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--accent); }
+  .col-head h2{ font-size:20px; font-weight:800; margin:4px 0 0; }
+  .col-icon{
+    width:38px; height:38px; border-radius:10px; background:var(--accent-soft); color:var(--accent);
+    display:flex; align-items:center; justify-content:center; flex:none;
+  }
+
+  /* KPI grid inside column */
+  .kpi-grid{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .kpi-tile{ background:var(--surface-2); border-radius:12px; padding:14px 15px; min-width:0; }
+  .kpi-tile .label{ font-size:11.5px; color:var(--text-muted); font-weight:600; text-transform:uppercase; letter-spacing:.03em; }
+  .kpi-tile .value{ font-size:26px; font-weight:800; margin-top:5px; line-height:1.05; letter-spacing:-0.01em; }
+  .kpi-tile .value small{ font-size:14px; font-weight:600; color:var(--text-secondary); }
+  .kpi-tile .foot{ font-size:11px; color:var(--text-muted); margin-top:4px; }
+
+  /* mini bars */
+  .mini-title{ font-size:12.5px; font-weight:700; color:var(--text-secondary); margin: 2px 0 2px; }
+  .mini-bars{ display:flex; flex-direction:column; gap:9px; }
+  .mini-row{ display:grid; grid-template-columns: 96px 1fr auto; align-items:center; gap:9px; }
+  .mini-row .rl{ font-size:12px; color:var(--text-secondary); text-align:right; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .mini-track{ height:13px; background:var(--surface-2); border-radius:4px; overflow:hidden; }
+  .mini-fill{ height:100%; border-radius:3px; }
+  .mini-row .rv{ font-size:12px; font-weight:600; font-variant-numeric:tabular-nums; white-space:nowrap; }
+
+  /* empty state (fontes futuras) */
+  .empty-state{
+    flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    text-align:center; gap:10px; color:var(--text-muted); padding: 10px 8px;
+  }
+  .empty-state .ic{ font-size:34px; opacity:.55; }
+  .empty-state .t{ font-size:14.5px; font-weight:600; color:var(--text-secondary); }
+  .empty-state .d{ font-size:12.5px; max-width:34ch; line-height:1.5; }
+
+  .legend-row{ display:flex; gap:14px; flex-wrap:wrap; font-size:11.5px; color:var(--text-muted); margin-top:auto; padding-top:4px; border-top:1px solid var(--border); }
+  .legend-row .k{ display:inline-flex; align-items:center; gap:6px; }
+  .legend-row .d{ width:8px; height:8px; border-radius:2px; }
+</style>
+</head>
+<body>
+
+  <div class="shell">
+    <header>
+      <div class="brand">
+        <div class="mark">RE</div>
+        <div class="titles">
+          <h1>Painel Operacional</h1>
+          <div class="sub">Rezende Energia · Frota, combustível &amp; abastecimento</div>
+        </div>
+      </div>
+      <div class="clockbox">
+        <div class="clock" id="clock">--:--</div>
+        <div class="date" id="dateLabel">—</div>
+      </div>
+    </header>
+
+    <div class="status-strip" id="statusStrip">
+      <span class="dot"></span>
+      <span id="statusText">Carregando dados…</span>
+    </div>
+
+    <div class="columns">
+      <!-- MANUTENÇÃO -->
+      <section class="col" id="col-manutencao">
+        <div class="col-head">
+          <div>
+            <div class="eyebrow">Frota</div>
+            <h2>Manutenção</h2>
+          </div>
+          <div class="col-icon">🔧</div>
+        </div>
+        <div id="manutencaoBody" style="flex:1; display:flex; flex-direction:column; gap:16px; min-height:0;">
+          <!-- preenchido via JS -->
+        </div>
+      </section>
+
+      <!-- ABASTECIMENTO -->
+      <section class="col" id="col-abastecimento">
+        <div class="col-head">
+          <div>
+            <div class="eyebrow">Frota</div>
+            <h2>Abastecimento</h2>
+          </div>
+          <div class="col-icon">⛽</div>
+        </div>
+        <div id="abastecimentoBody" style="flex:1; display:flex; flex-direction:column; gap:16px; min-height:0;">
+          <!-- preenchido via JS -->
+        </div>
+      </section>
+
+      <!-- ESTOQUE DE COMBUSTÍVEL -->
+      <section class="col" id="col-estoque">
+        <div class="col-head">
+          <div>
+            <div class="eyebrow">Localidades</div>
+            <h2>Estoque de combustível</h2>
+          </div>
+          <div class="col-icon">🛢️</div>
+        </div>
+        <div id="estoqueBody" style="flex:1; display:flex; flex-direction:column; gap:16px; min-height:0;">
+          <!-- preenchido via JS -->
+        </div>
+      </section>
+    </div>
+  </div>
+
+<script src="/app.js"></script>
+</body>
+</html>

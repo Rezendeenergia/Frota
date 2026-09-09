@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: painel-tv-rezende
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm install
+    startCommand: npm run start
+    envVars:
+      # Mesmas credenciais do App Registration do Azure já usadas pelo
+      # CromFolgas (Render → cromfolgas → Environment → copiar os valores).
+      # É o mesmo app, então NÃO precisa criar um novo App Registration —
+      # só repetir as 3 variáveis aqui.
+      - key: SHAREPOINT_CLIENT_ID
+        sync: false
+      - key: SHAREPOINT_CLIENT_SECRET
+        sync: false
+      - key: SHAREPOINT_TENANT_ID
+        sync: false
+      # Chave que este painel manda no header X-API-Key ao chamar
+      # GET /api/painel-tv do sistema de abastecimento. Gere uma string
+      # aleatória longa e configure a MESMA chave nos dois serviços.
+      - key: ABASTECIMENTO_API_URL
+        sync: false
+      - key: ABASTECIMENTO_API_KEY
+        sync: false
+    autoDeploy: true
