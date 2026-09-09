@@ -6,7 +6,10 @@ const REFRESH_MS = 5 * 60 * 1000;       // TV pergunta a cada 5 min...
 const RELOAD_SAFETY_MS = 6 * 60 * 60 * 1000; // ...mas recarrega a página inteira a cada 6h (evita vazamento de memória em sessão infinita)
 const STALE_AFTER_MS = 45 * 60 * 1000;  // se o payload for mais velho que isso, mostra aviso
 
-const BAR_COLORS = ['var(--series-blue)', 'var(--series-orange)', 'var(--series-teal)'];
+// Cor única para todas as barras de gráfico do painel (Manutenção,
+// Abastecimento e bombonas) — pedido do presidente, substitui o antigo
+// esquema de cor por posição (1º/2º/3º lugar).
+const BAR_COLOR = '#f7931e';
 
 function fmtBRL(n) {
   if (n === null || n === undefined || Number.isNaN(n)) return '—';
@@ -45,24 +48,18 @@ function kpiTile(label, value, foot) {
   ]);
 }
 
-function miniBars(title, rows, valueFmt = fmtBRL, color = null) {
+function miniBars(title, rows, valueFmt = fmtBRL) {
   const max = Math.max(1, ...rows.map((r) => r.custo ?? r.litros ?? 0));
   const wrap = el('div', {}, [el('div', { class: 'mini-title' }, title)]);
   const list = el('div', { class: 'mini-bars' });
-  rows.slice(0, 5).forEach((r, i) => {
+  rows.slice(0, 5).forEach((r) => {
     const val = r.custo ?? r.litros ?? 0;
     const pct = Math.max(4, Math.round((val / max) * 100));
     list.appendChild(
       el('div', { class: 'mini-row' }, [
         el('div', { class: 'rl', title: r.chave }, r.chave),
         el('div', { class: 'mini-track' }, [
-          el('div', {
-            class: 'mini-fill',
-            // `color` fixo (ex.: Manutenção usa um laranja único) tem
-            // prioridade; sem ele, mantém o esquema antigo de cor por
-            // posição (1º/2º/3º lugar) — usado hoje só em Abastecimento.
-            style: `width:${pct}%; background:${color || BAR_COLORS[i % BAR_COLORS.length]}`,
-          }),
+          el('div', { class: 'mini-fill', style: `width:${pct}%; background:${BAR_COLOR}` }),
         ]),
         el('div', { class: 'rv' }, valueFmt(val)),
       ])
@@ -107,8 +104,8 @@ function renderManutencao(container, data) {
     kpiTile('Gasto com corretiva', fmtBRL(custoCorretiva), pctDoTotal(custoCorretiva)),
   ]);
   container.appendChild(kpis);
-  container.appendChild(miniBars('Custo por oficina', data.porOficina || [], fmtBRL, '#f7931e'));
-  container.appendChild(miniBars('Custo por veículo', data.porVeiculo || [], fmtBRL, '#f7931e'));
+  container.appendChild(miniBars('Custo por oficina', data.porOficina || []));
+  container.appendChild(miniBars('Custo por veículo', data.porVeiculo || []));
 }
 
 // ---------- ABASTECIMENTO ----------
@@ -139,7 +136,7 @@ function renderAbastecimento(container, data) {
       list.appendChild(
         el('div', { class: 'mini-row' }, [
           el('div', { class: 'rl', title: b.nome }, b.nome),
-          el('div', { class: 'mini-track' }, [el('div', { class: 'mini-fill', style: `width:${pct}%; background:var(--series-teal)` })]),
+          el('div', { class: 'mini-track' }, [el('div', { class: 'mini-fill', style: `width:${pct}%; background:${BAR_COLOR}` })]),
           el('div', { class: 'rv' }, `${fmtNum(b.litrosRestantes, { maximumFractionDigits: 0 })} L`),
         ])
       );

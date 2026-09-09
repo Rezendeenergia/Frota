@@ -43,11 +43,7 @@
   /* header */
   header{ display:flex; align-items:center; justify-content:space-between; }
   .brand{ display:flex; align-items:center; gap:16px; }
-  .brand .mark{
-    width:44px; height:44px; border-radius:11px; background:var(--accent);
-    display:flex; align-items:center; justify-content:center; font-weight:800;
-    color:#1c1408; font-size:21px; font-family:"Archivo",sans-serif; flex:none;
-  }
+  .brand .logo{ height:52px; width:auto; flex:none; display:block; }
   .brand .titles h1{ font-size:25px; font-weight:800; margin:0; letter-spacing:-0.01em; }
   .brand .titles .sub{ font-size:15.5px; color:var(--text-muted); margin-top:1px; }
   .clockbox{ text-align:right; }
@@ -89,7 +85,7 @@
   /* mini bars */
   .mini-title{ font-size:14.5px; font-weight:700; color:var(--text-secondary); margin: 2px 0 2px; }
   .mini-bars{ display:flex; flex-direction:column; gap:9px; }
-  .mini-row{ display:grid; grid-template-columns: 96px 1fr auto; align-items:center; gap:9px; }
+  .mini-row{ display:grid; grid-template-columns: 152px 1fr auto; align-items:center; gap:9px; }
   .mini-row .rl{ font-size:14px; color:var(--text-secondary); text-align:right; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .mini-track{ height:13px; background:var(--surface-2); border-radius:4px; overflow:hidden; }
   .mini-fill{ height:100%; border-radius:3px; }
@@ -114,7 +110,7 @@
   <div class="shell">
     <header>
       <div class="brand">
-        <div class="mark">RE</div>
+        <img class="logo" src="/logo-rezende.png" alt="Rezende Energia">
         <div class="titles">
           <h1>Painel Operacional</h1>
           <div class="sub">Rezende Energia · Frota, combustível &amp; abastecimento</div>
