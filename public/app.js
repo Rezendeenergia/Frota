@@ -45,7 +45,7 @@ function kpiTile(label, value, foot) {
   ]);
 }
 
-function miniBars(title, rows, valueFmt = fmtBRL) {
+function miniBars(title, rows, valueFmt = fmtBRL, color = null) {
   const max = Math.max(1, ...rows.map((r) => r.custo ?? r.litros ?? 0));
   const wrap = el('div', {}, [el('div', { class: 'mini-title' }, title)]);
   const list = el('div', { class: 'mini-bars' });
@@ -58,7 +58,10 @@ function miniBars(title, rows, valueFmt = fmtBRL) {
         el('div', { class: 'mini-track' }, [
           el('div', {
             class: 'mini-fill',
-            style: `width:${pct}%; background:${BAR_COLORS[i % BAR_COLORS.length]}`,
+            // `color` fixo (ex.: Manutenção usa um laranja único) tem
+            // prioridade; sem ele, mantém o esquema antigo de cor por
+            // posição (1º/2º/3º lugar) — usado hoje só em Abastecimento.
+            style: `width:${pct}%; background:${color || BAR_COLORS[i % BAR_COLORS.length]}`,
           }),
         ]),
         el('div', { class: 'rv' }, valueFmt(val)),
@@ -90,22 +93,22 @@ function renderManutencao(container, data) {
     return;
   }
 
+  // Valor e % gasto em cada tipo de manutenção (em vez de contagem de OS) —
+  // % é a fatia do custo confirmado total (mesma base do 1º card).
+  const porTipo = data.porTipo || [];
+  const custoPreventiva = porTipo.find((t) => t.chave === 'Preventiva')?.custo ?? 0;
+  const custoCorretiva = porTipo.find((t) => t.chave === 'Corretiva')?.custo ?? 0;
+  const pctDoTotal = (v) => (data.custoConfirmado ? `${Math.round((v / data.custoConfirmado) * 100)}% do custo confirmado` : null);
+
   const kpis = el('div', { class: 'kpi-grid' }, [
     kpiTile('Custo confirmado', fmtBRL(data.custoConfirmado), `${fmtNum(data.totalOrdens)} ordens no total`),
-    kpiTile('Custo pendente', fmtBRL(data.custoPendenteEstimado), `${fmtNum(data.qtdPendentes)} aguardando fechamento`),
+    kpiTile('Gasto com preventiva', fmtBRL(custoPreventiva), pctDoTotal(custoPreventiva)),
     kpiTile('Tempo parado (médio)', fmtDias(data.tempoMedioParadoDias), data.tempoMaxParadoDias != null ? `pico: ${fmtDias(data.tempoMaxParadoDias)}` : null),
-    kpiTile('Preventiva × Corretiva', `${data.percentualPreventiva ?? '—'}%`, `corretiva: ${data.percentualCorretiva ?? '—'}%`),
+    kpiTile('Gasto com corretiva', fmtBRL(custoCorretiva), pctDoTotal(custoCorretiva)),
   ]);
   container.appendChild(kpis);
-  container.appendChild(miniBars('Custo por oficina', data.porOficina || []));
-  container.appendChild(miniBars('Custo por veículo', data.porVeiculo || []));
-
-  const legend = el('div', { class: 'legend-row' }, [
-    el('span', { class: 'k' }, [el('span', { class: 'd', style: 'background:var(--series-blue)' }), '1º lugar']),
-    el('span', { class: 'k' }, [el('span', { class: 'd', style: 'background:var(--series-orange)' }), '2º lugar']),
-    el('span', { class: 'k' }, [el('span', { class: 'd', style: 'background:var(--series-teal)' }), '3º lugar']),
-  ]);
-  container.appendChild(legend);
+  container.appendChild(miniBars('Custo por oficina', data.porOficina || [], fmtBRL, '#f7931e'));
+  container.appendChild(miniBars('Custo por veículo', data.porVeiculo || [], fmtBRL, '#f7931e'));
 }
 
 // ---------- ABASTECIMENTO ----------
