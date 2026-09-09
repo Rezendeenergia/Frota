@@ -92,7 +92,7 @@ function renderManutencao(container, data) {
 
   const kpis = el('div', { class: 'kpi-grid' }, [
     kpiTile('Custo confirmado', fmtBRL(data.custoConfirmado), `${fmtNum(data.totalOrdens)} ordens no total`),
-    kpiTile('Custo pendente (estim.)', fmtBRL(data.custoPendenteEstimado), `${fmtNum(data.qtdPendentes)} aguardando fechamento`),
+    kpiTile('Custo pendente', fmtBRL(data.custoPendenteEstimado), `${fmtNum(data.qtdPendentes)} aguardando fechamento`),
     kpiTile('Tempo parado (médio)', fmtDias(data.tempoMedioParadoDias), data.tempoMaxParadoDias != null ? `pico: ${fmtDias(data.tempoMaxParadoDias)}` : null),
     kpiTile('Preventiva × Corretiva', `${data.percentualPreventiva ?? '—'}%`, `corretiva: ${data.percentualCorretiva ?? '—'}%`),
   ]);
