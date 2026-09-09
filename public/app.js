@@ -72,6 +72,67 @@ function miniBars(title, rows, valueFmt = fmtBRL) {
   return wrap;
 }
 
+// Gráfico de linha bem pequeno (cabe dentro de um kpi-tile) — usado hoje só
+// para "custo total por mês" no card de Abastecimento, mas serve pra
+// qualquer série {mes/rótulo, custo}. Sem libs — SVG puro.
+function miniLineChart(rows) {
+  const width = 160;
+  const height = 44;
+  const pad = 4;
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(svgNS, 'svg');
+  svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+  svg.setAttribute('preserveAspectRatio', 'none');
+  svg.setAttribute('class', 'mini-linechart');
+
+  const vals = rows.map((r) => r.custo ?? 0);
+  if (!rows.length || !vals.some((v) => v > 0)) return svg;
+
+  const max = Math.max(1, ...vals);
+  const stepX = rows.length > 1 ? (width - pad * 2) / (rows.length - 1) : 0;
+  const points = rows.map((r, i) => {
+    const x = pad + i * stepX;
+    const y = height - pad - ((r.custo ?? 0) / max) * (height - pad * 2);
+    return [x, y];
+  });
+
+  const pathD = points.map(([x, y], i) => `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
+  const baseline = height - pad;
+  const areaD = `${pathD} L${points[points.length - 1][0].toFixed(1)},${baseline} L${points[0][0].toFixed(1)},${baseline} Z`;
+
+  const area = document.createElementNS(svgNS, 'path');
+  area.setAttribute('d', areaD);
+  area.setAttribute('fill', 'rgba(247,147,30,0.16)');
+  area.setAttribute('stroke', 'none');
+  svg.appendChild(area);
+
+  const line = document.createElementNS(svgNS, 'path');
+  line.setAttribute('d', pathD);
+  line.setAttribute('fill', 'none');
+  line.setAttribute('stroke', BAR_COLOR);
+  line.setAttribute('stroke-width', '2');
+  line.setAttribute('stroke-linecap', 'round');
+  line.setAttribute('stroke-linejoin', 'round');
+  svg.appendChild(line);
+
+  const [lastX, lastY] = points[points.length - 1];
+  const dot = document.createElementNS(svgNS, 'circle');
+  dot.setAttribute('cx', lastX.toFixed(1));
+  dot.setAttribute('cy', lastY.toFixed(1));
+  dot.setAttribute('r', '2.6');
+  dot.setAttribute('fill', BAR_COLOR);
+  svg.appendChild(dot);
+
+  return svg;
+}
+
+function chartTile(label, rows, foot) {
+  const tile = el('div', { class: 'kpi-tile chart-tile' }, [el('div', { class: 'label' }, label)]);
+  tile.appendChild(miniLineChart(rows));
+  if (foot) tile.appendChild(el('div', { class: 'foot' }, foot));
+  return tile;
+}
+
 function emptyState(icon, title, desc) {
   return el('div', { class: 'empty-state' }, [
     el('div', { class: 'ic' }, icon),
@@ -121,11 +182,14 @@ function renderAbastecimento(container, data) {
   const kpis = el('div', { class: 'kpi-grid' }, [
     kpiTile('Litros abastecidos', fmtNum(data.totalLitros, { maximumFractionDigits: 0 }), data.periodo || null),
     kpiTile('Custo total', fmtBRL(data.custoTotal), `${fmtNum(data.qtdAbastecimentos)} abastecimentos`),
-    kpiTile('Pendentes de aprovação', fmtNum(data.pendentesAprovacao), null),
+    // Teste: no lugar de "pendentes de aprovação", um gráfico de linha bem
+    // pequeno com o custo total dos últimos 6 meses (não segue o filtro de
+    // período — é sempre os últimos 6 meses corridos, ver server.js/Abast).
+    chartTile('Custo total por mês (6 meses)', data.custoPorMes || []),
     kpiTile('Preço médio/L', data.totalLitros ? fmtBRL(data.custoTotal / data.totalLitros) : '—', null),
   ]);
   container.appendChild(kpis);
-  container.appendChild(miniBars('Litros por posto', (data.porPosto || []).map((r) => ({ chave: r.chave, litros: r.litros })), (v) => `${fmtNum(v, { maximumFractionDigits: 0 })} L`));
+  container.appendChild(miniBars('Valor por tipo de combustível', data.porTipoCombustivel || []));
   container.appendChild(miniBars('Custo por veículo', data.porVeiculo || []));
 
   if (data.bombonas && data.bombonas.length) {
@@ -181,10 +245,33 @@ function updateStatus(payload) {
     : `Dados atualizados às ${horario}${payload.fromCache ? ' (cache)' : ''}`;
 }
 
+// ---------- filtro de período ----------
+// Afeta Manutenção e Abastecimento (não afeta o gráfico "custo por mês" de
+// cima, que é sempre os últimos 6 meses, nem o Estoque, que ainda não tem
+// dado real). Botões clicáveis direto na tela — ver .period-filter no HTML.
+let currentPeriodo = '7dias';
+
+function setupPeriodFilter() {
+  const buttons = Array.from(document.querySelectorAll('.pf-btn'));
+  buttons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const periodo = btn.dataset.periodo;
+      if (!periodo || periodo === currentPeriodo) return;
+      currentPeriodo = periodo;
+      buttons.forEach((b) => b.classList.toggle('active', b === btn));
+      // force=1: troca de filtro deve refletir na hora, sem esperar o cache
+      // do servidor vencer (ver server/index.js).
+      loadPainel({ force: true });
+    });
+  });
+}
+
 // ---------- ciclo principal ----------
-async function loadPainel() {
+async function loadPainel({ force = false } = {}) {
   try {
-    const res = await fetch('/api/painel', { cache: 'no-store' });
+    const params = new URLSearchParams({ periodo: currentPeriodo });
+    if (force) params.set('force', '1');
+    const res = await fetch(`/api/painel?${params.toString()}`, { cache: 'no-store' });
     const payload = await res.json();
     renderManutencao(document.getElementById('manutencaoBody'), payload.manutencao);
     renderAbastecimento(document.getElementById('abastecimentoBody'), payload.abastecimento);
@@ -199,6 +286,7 @@ async function loadPainel() {
 updateClock();
 setInterval(updateClock, 1000);
 
+setupPeriodFilter();
 loadPainel();
-setInterval(loadPainel, REFRESH_MS);
+setInterval(() => loadPainel(), REFRESH_MS);
 setTimeout(() => window.location.reload(), RELOAD_SAFETY_MS);

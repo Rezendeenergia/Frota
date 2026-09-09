@@ -60,6 +60,18 @@
   .status-strip b{ color:var(--text-secondary); font-weight:600; }
   .status-strip .sep{ opacity:.4; }
 
+  /* filtro de período (Manutenção + Abastecimento) */
+  .period-filter{ margin-left:auto; display:flex; align-items:center; gap:10px; }
+  .period-filter .pf-label{ color:var(--text-muted); }
+  .pf-buttons{ display:flex; gap:8px; }
+  .pf-btn{
+    font-family:inherit; font-size:14px; font-weight:600; color:var(--text-secondary);
+    background:var(--surface-2); border:1px solid var(--border); border-radius:999px;
+    padding:6px 16px; cursor:pointer; transition:background .15s, color .15s, border-color .15s;
+  }
+  .pf-btn:hover{ color:var(--text-primary); border-color:var(--text-muted); }
+  .pf-btn.active{ background:var(--accent); border-color:var(--accent); color:#1a1206; }
+
   /* columns */
   .columns{ flex:1; display:grid; grid-template-columns: repeat(3, 1fr); gap:20px; min-height:0; }
   .col{
@@ -81,6 +93,10 @@
   .kpi-tile .value{ font-size:28px; font-weight:800; margin-top:5px; line-height:1.05; letter-spacing:-0.01em; }
   .kpi-tile .value small{ font-size:16px; font-weight:600; color:var(--text-secondary); }
   .kpi-tile .foot{ font-size:13px; color:var(--text-muted); margin-top:4px; }
+
+  /* KPI tile em modo gráfico (linha) — mesmo tamanho do tile normal */
+  .kpi-tile.chart-tile{ display:flex; flex-direction:column; }
+  .mini-linechart{ width:100%; height:42px; display:block; margin-top:6px; flex:1; }
 
   /* mini bars */
   .mini-title{ font-size:14.5px; font-weight:700; color:var(--text-secondary); margin: 2px 0 2px; }
@@ -125,6 +141,15 @@
     <div class="status-strip" id="statusStrip">
       <span class="dot"></span>
       <span id="statusText">Carregando dados…</span>
+      <div class="period-filter" id="periodFilter">
+        <span class="pf-label">Período (Manutenção e Abastecimento):</span>
+        <div class="pf-buttons">
+          <button class="pf-btn" data-periodo="hoje">Hoje</button>
+          <button class="pf-btn active" data-periodo="7dias">Últimos 7 dias</button>
+          <button class="pf-btn" data-periodo="30dias">Últimos 30 dias</button>
+          <button class="pf-btn" data-periodo="mes">Este mês</button>
+        </div>
+      </div>
     </div>
 
     <div class="columns">
