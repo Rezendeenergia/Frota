@@ -5,13 +5,22 @@ import { parseMoneyBR, parseDateBR, diffDays, normalizeHeader } from './formatte
 // testado com um arquivo local, sem precisar das credenciais do Graph.
 
 const FILENAME = 'MANUTENÇÕES REZENDE ENERGIA.xlsx';
-const SHEET_NAME = 'Planilha1'; // aba com custo consolidado por OS
+// Trocado de 'Planilha1' (consolidada, 1 linha por OS) para 'Planilha2'
+// (detalhada, 1 linha por ITEM — peça ou serviço — dentro de cada OS).
+// Por isso o parsing abaixo tem uma etapa extra que a Planilha1 não
+// precisava: agrupar as linhas por Nº PEDIDO antes de calcular os KPIs
+// (ver groupByPedido / buildOrdemFromGrupo).
+const SHEET_NAME = 'Planilha2';
 
-// Nomes de coluna como aparecem hoje na planilha (ver normalizeHeader) ->
+// Nomes de coluna como aparecem hoje na Planilha2 (ver normalizeHeader) ->
 // chave interna que usamos daqui pra frente. Casar por nome (não por
 // índice) é o que deixa isso resistente a alguém reordenar colunas no
-// SharePoint.
+// SharePoint. 'N° PEDIDO' aparece com dois símbolos diferentes dependendo
+// de como foi digitado na planilha (° grau ou º ordinal) — mapeamos os dois.
 const COLUMN_MAP = {
+  'N° PEDIDO': 'pedido',
+  'Nº PEDIDO': 'pedido',
+  'EQUIPE': 'equipe',
   'PLACA': 'placa',
   'MODELO': 'modelo',
   'KM': 'km',
@@ -19,14 +28,20 @@ const COLUMN_MAP = {
   'DATA DA APROVACAO': 'dataAprovacao',
   'DATA DA SAIDA': 'dataSaida',
   'OFICINA': 'oficina',
-  'TIPO DE MANUTENCAO': 'tipo',
-  'DESCRICAO DO ITEM': 'descricao',
-  'VALOR PECA': 'valorPeca',
-  'VALOR MAO DE SERVICO': 'valorMaoDeObra',
-  'R$ FINAL': 'valorFinal',
+  'TIPO DE MANUTENCAO': 'tipoManutencao', // PREVENTIVA | CORRETIVA (por item)
+  'TIPO': 'tipoItem', // PEÇA | SERVIÇO (não confundir com tipoManutencao acima)
+  'QTD': 'qtd',
+  'DESCRICAO DO ITEM': 'descricaoItem',
+  'VALOR UNITARIO': 'valorUnitario',
+  'VALOR TOTAL': 'valorTotalItem',
   'STATUS': 'status',
   'OBSERVACAO': 'observacao',
 };
+
+// Status que indicam que o valor ainda não está fechado (orçamento/cotação
+// em aberto) — mesmo critério que a Planilha1 usava para separar custo
+// confirmado de custo pendente estimado.
+const STATUS_PENDENTES = new Set(['EM ORCAMENTO', 'COTACAO']);
 
 function rowsFromSheet(workbook, sheetName) {
   const sheet = workbook.Sheets[sheetName];
@@ -52,39 +67,112 @@ function rowsFromSheet(workbook, sheetName) {
     keyByCol.forEach((key, col) => {
       if (key) record[key] = line[col];
     });
-    // Linha em branco de verdade (sem placa) — pula.
-    if (!record.placa) continue;
+    // Linha em branco de verdade (sem placa e sem pedido) — pula. A
+    // Planilha2 tem algumas linhas totalmente vazias entre pedidos.
+    if (!record.placa && !record.pedido) continue;
     rows.push(record);
   }
   return rows;
 }
 
-function buildOrdem(raw) {
-  const dataParada = parseDateBR(raw.dataParada);
-  const dataSaida = parseDateBR(raw.dataSaida);
-  const valorPeca = parseMoneyBR(raw.valorPeca);
-  const valorMaoDeObra = parseMoneyBR(raw.valorMaoDeObra);
-  const valorFinal = parseMoneyBR(raw.valorFinal);
-  const status = String(raw.status ?? '').trim();
-  const tipo = String(raw.tipo ?? '').trim().toUpperCase();
+// Agrupa as linhas de item pelo Nº PEDIDO, preservando a ordem de
+// primeira aparição (mesma ordem da planilha).
+function groupByPedido(rows) {
+  const order = [];
+  const map = new Map();
+  for (const row of rows) {
+    const key = String(row.pedido ?? '').trim() || `__sem_pedido_${order.length}`;
+    if (!map.has(key)) {
+      map.set(key, []);
+      order.push(key);
+    }
+    map.get(key).push(row);
+  }
+  return order.map((key) => map.get(key));
+}
+
+// Primeiro valor não-nulo/vazio de um campo dentro do grupo — usado para
+// campos que descrevem a OS como um todo (placa, oficina, datas) e que
+// vêm repetidos em toda linha de item do mesmo pedido.
+function firstNonEmpty(grupo, field) {
+  for (const row of grupo) {
+    const v = row[field];
+    if (v !== null && v !== undefined && String(v).trim() !== '') return v;
+  }
+  return null;
+}
+
+// Valor mais frequente de um campo dentro do grupo (empate resolvido pela
+// primeira ocorrência). Usado para STATUS, que na Planilha2 vem repetido
+// em cada linha de item — normalmente idêntico, mas por segurança pegamos
+// a moda em vez de simplesmente a primeira linha.
+function mostCommon(grupo, field) {
+  const counts = new Map();
+  for (const row of grupo) {
+    const v = row[field] ? String(row[field]).trim() : null;
+    if (!v) continue;
+    counts.set(v, (counts.get(v) ?? 0) + 1);
+  }
+  let best = null;
+  let bestCount = 0;
+  for (const [v, c] of counts) {
+    if (c > bestCount) {
+      best = v;
+      bestCount = c;
+    }
+  }
+  return best;
+}
+
+function buildOrdemFromGrupo(grupo) {
+  const dataParada = parseDateBR(firstNonEmpty(grupo, 'dataParada'));
+  const dataSaida = parseDateBR(firstNonEmpty(grupo, 'dataSaida'));
+  const status = mostCommon(grupo, 'status');
+  const statusNormalizado = normalizeHeader(status ?? '');
+
+  // Tipo de manutenção da OS: a Planilha2 permite itens preventivos e
+  // corretivos misturados no mesmo pedido (ex.: revisão preventiva que
+  // aproveitou pra trocar uma peça quebrada). Classificamos a OS como
+  // CORRETIVA se qualquer item dela for corretivo — senão, PREVENTIVA.
+  const tiposManutencao = grupo
+    .map((r) => String(r.tipoManutencao ?? '').trim().toUpperCase())
+    .filter(Boolean);
+  const tipo = tiposManutencao.includes('CORRETIVA')
+    ? 'CORRETIVA'
+    : tiposManutencao.includes('PREVENTIVA')
+    ? 'PREVENTIVA'
+    : null;
+
+  // Custo da OS = soma do VALOR TOTAL de todos os itens do pedido.
+  const valorTotalPedido = grupo.reduce((acc, r) => {
+    const v = parseMoneyBR(r.valorTotalItem);
+    return acc + (v ?? 0);
+  }, 0);
+  const temAlgumValor = grupo.some((r) => parseMoneyBR(r.valorTotalItem) !== null);
+  const pendente = STATUS_PENDENTES.has(statusNormalizado);
 
   return {
-    placa: String(raw.placa ?? '').trim(),
-    modelo: String(raw.modelo ?? '').trim(),
-    oficina: String(raw.oficina ?? '').trim(),
-    tipo: tipo || null, // PREVENTIVA | CORRETIVA
-    descricao: raw.descricao ? String(raw.descricao).trim() : null,
+    pedido: String(grupo[0]?.pedido ?? '').trim() || null,
+    placa: String(firstNonEmpty(grupo, 'placa') ?? '').trim(),
+    modelo: String(firstNonEmpty(grupo, 'modelo') ?? '').trim(),
+    oficina: String(firstNonEmpty(grupo, 'oficina') ?? '').trim(),
+    tipo, // PREVENTIVA | CORRETIVA
     status: status || null,
     dataParada: dataParada ? dataParada.toISOString().slice(0, 10) : null,
     dataSaida: dataSaida ? dataSaida.toISOString().slice(0, 10) : null,
     diasParado: diffDays(dataParada, dataSaida),
-    valorPeca,
-    valorMaoDeObra,
-    // custo "confirmado" da OS: usa R$ FINAL se preenchido, senão soma
-    // peça+mão de obra quando ambos existem; senão fica pendente (null).
-    custoConfirmado:
-      valorFinal ?? (valorPeca !== null && valorMaoDeObra !== null ? valorPeca + valorMaoDeObra : null),
-    custoPendenteEstimado: valorFinal === null ? valorPeca ?? valorMaoDeObra ?? null : null,
+    // custo "confirmado" da OS: soma dos itens, exceto quando o status
+    // ainda é de orçamento/cotação em aberto — nesse caso o valor (se
+    // houver) é só estimativa e vai para custoPendenteEstimado.
+    custoConfirmado: temAlgumValor && !pendente ? valorTotalPedido : null,
+    custoPendenteEstimado: temAlgumValor && pendente ? valorTotalPedido : null,
+    itens: grupo.map((r) => ({
+      descricao: r.descricaoItem ? String(r.descricaoItem).trim() : null,
+      tipoItem: r.tipoItem ? String(r.tipoItem).trim() : null, // PEÇA | SERVIÇO
+      qtd: r.qtd ?? null,
+      valorUnitario: parseMoneyBR(r.valorUnitario),
+      valorTotal: parseMoneyBR(r.valorTotalItem),
+    })),
   };
 }
 
@@ -106,11 +194,12 @@ function groupSumCount(ordens, keyFn) {
 }
 
 // Separado de fetchManutencao() para poder testar o parsing/cálculo com um
-// buffer local (sem precisar autenticar no Graph) — ver server/test/.
+// buffer local (sem precisar autenticar no Graph) — ver server/test-run.mjs.
 export function computeFromBuffer(buffer) {
   const workbook = XLSX.read(buffer, { type: 'array', cellDates: true });
   const raw = rowsFromSheet(workbook, SHEET_NAME);
-  const ordens = raw.map(buildOrdem);
+  const grupos = groupByPedido(raw);
+  const ordens = grupos.map(buildOrdemFromGrupo);
 
   const confirmadas = ordens.filter((o) => o.custoConfirmado !== null);
   const pendentes = ordens.filter((o) => o.custoConfirmado === null);
