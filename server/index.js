@@ -11,19 +11,24 @@ const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const PORT = process.env.PORT || 3000;
 
 // A TV pede a cada poucos minutos (ver public/app.js), e os dados em si
-// agora ficam "frescos" por 5 min antes de buscar de novo no SharePoint/
-// sistema de abastecimento (antes era 30 min).
+// ficam "frescos" por 5 min antes de buscar de novo no SharePoint/sistema
+// de abastecimento.
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 
+// `?force=1` (usado ao trocar o filtro na tela) ignora o cache — mas, como o
+// endpoint é público, só vale se o cache tiver mais de 20 s. Sem isso, qualquer
+// pessoa com o link poderia disparar buscas ilimitadas no SharePoint e no
+// sistema de abastecimento.
+const FORCE_MIN_AGE_MS = 20 * 1000;
+
 // Filtro de período clicável na tela (ver public/app.js): 'hoje' | '7dias' |
-// '30dias' | 'mes'. Cada opção tem seu próprio cache — senão, trocar de
-// filtro na tela ia às vezes devolver dados de outro período (o antigo
-// `cache` era um objeto único, sem noção de período).
+// '30dias' | 'mes'. Cada opção tem seu próprio cache.
 const VALID_PERIODOS = new Set(['hoje', '7dias', '30dias', 'mes']);
 const DEFAULT_PERIODO = '7dias';
 
 const cache = new Map(); // periodo -> { payload, generatedAt }
+const inflight = new Map(); // periodo -> Promise (pedidos simultâneos dividem a mesma busca)
 
 async function buildPayload(periodo) {
   // Busca as 3 fontes em paralelo. Cada uma trata seu próprio erro e
@@ -35,13 +40,16 @@ async function buildPayload(periodo) {
     fetchEstoque(),
   ]);
 
+  // O erro completo vai só para o log do servidor. A tela (que é pública)
+  // recebe uma mensagem genérica — mensagens do Graph/SharePoint podem
+  // conter caminhos, IDs e detalhes internos.
   const pickOrError = (settled, label) => {
     if (settled.status === 'fulfilled') return { ok: true, data: settled.value };
     console.error(`[painel] falha em ${label}:`, settled.reason?.message || settled.reason);
-    return { ok: false, error: String(settled.reason?.message || settled.reason) };
+    return { ok: false, error: `Fonte de ${label} temporariamente indisponível.` };
   };
 
-  const m = pickOrError(manutencao, 'manutencao');
+  const m = pickOrError(manutencao, 'manutenção');
   const a = pickOrError(abastecimento, 'abastecimento');
   const e = pickOrError(estoque, 'estoque');
 
@@ -53,9 +61,18 @@ async function buildPayload(periodo) {
   };
 }
 
+// Uma busca por período por vez; quem chegar enquanto ela roda espera o mesmo
+// resultado em vez de disparar outra.
+function buildPayloadShared(periodo) {
+  if (inflight.has(periodo)) return inflight.get(periodo);
+  const p = buildPayload(periodo).finally(() => inflight.delete(periodo));
+  inflight.set(periodo, p);
+  return p;
+}
+
 async function refreshCache(periodo = DEFAULT_PERIODO) {
   try {
-    const payload = await buildPayload(periodo);
+    const payload = await buildPayloadShared(periodo);
     cache.set(periodo, { payload, generatedAt: payload.generatedAt });
     console.log(`[cache] atualizado (${periodo}) às ${payload.generatedAt}`);
   } catch (err) {
@@ -66,27 +83,31 @@ async function refreshCache(periodo = DEFAULT_PERIODO) {
 const app = express();
 
 app.get('/api/painel', async (req, res) => {
-  const force = ['1', 'true'].includes(String(req.query.force));
+  const forceRequested = ['1', 'true'].includes(String(req.query.force));
   const periodoBruto = String(req.query.periodo || DEFAULT_PERIODO);
   const periodo = VALID_PERIODOS.has(periodoBruto) ? periodoBruto : DEFAULT_PERIODO;
 
   const cached = cache.get(periodo);
-  if (!force && cached && Date.now() - new Date(cached.generatedAt).getTime() < CACHE_TTL_MS) {
+  const idade = cached ? Date.now() - new Date(cached.generatedAt).getTime() : Infinity;
+  const force = forceRequested && idade > FORCE_MIN_AGE_MS;
+
+  if (!force && cached && idade < CACHE_TTL_MS) {
     return res.json({ ...cached.payload, fromCache: true });
   }
 
   try {
-    const payload = await buildPayload(periodo);
+    const payload = await buildPayloadShared(periodo);
     cache.set(periodo, { payload, generatedAt: payload.generatedAt });
     return res.json({ ...payload, fromCache: false });
   } catch (err) {
     // Nunca deveria cair aqui (buildPayload não rejeita), mas por garantia:
     // se tiver cache velho desse mesmo período, devolve ele em vez de
     // deixar a TV sem nada.
+    console.error('[painel] erro inesperado:', err?.message || err);
     if (cached) {
-      return res.json({ ...cached.payload, fromCache: true, stale: true, error: String(err?.message || err) });
+      return res.json({ ...cached.payload, fromCache: true, stale: true });
     }
-    return res.status(502).json({ error: String(err?.message || err) });
+    return res.status(502).json({ error: 'Painel temporariamente indisponível.' });
   }
 });
 
