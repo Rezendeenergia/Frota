@@ -70,7 +70,12 @@ export async function downloadWorkbookByName(filename) {
     `/sites/${siteId}/drive/root/search(q='${encodeURIComponent(filename)}')`,
     token
   );
-  const item = (search.value || []).find((i) => i.name === filename);
+  // Se existir mais de um arquivo com o mesmo nome (ex.: a planilha antiga
+  // esquecida em outra pasta), usa o modificado mais recentemente.
+  const candidatos = (search.value || [])
+    .filter((i) => i.name === filename)
+    .sort((a, b) => new Date(b.lastModifiedDateTime || 0) - new Date(a.lastModifiedDateTime || 0));
+  const item = candidatos[0];
   if (!item) {
     throw new Error(`Arquivo '${filename}' não encontrado no SharePoint (site Intranet).`);
   }
@@ -81,6 +86,33 @@ export async function downloadWorkbookByName(filename) {
   });
   if (!res.ok) {
     throw new Error(`Falha ao baixar '${filename}': ${res.status}`);
+  }
+  return res.arrayBuffer();
+}
+
+// Baixa um arquivo a partir de um LINK DE COMPARTILHAMENTO do SharePoint
+// (o link "https://rezendeenergia.sharepoint.com/:x:/s/Intranet/...").
+// É a forma mais segura de apontar para a planilha certa, porque o link
+// identifica o arquivo exato — não depende do nome nem da pasta onde ele está.
+// Usa o endpoint /shares do Graph: u! + base64url(link).
+export async function downloadWorkbookByShareUrl(shareUrl) {
+  const token = await getAccessToken();
+  const encoded =
+    'u!' +
+    Buffer.from(shareUrl, 'utf8')
+      .toString('base64')
+      .replace(/=+$/, '')
+      .replace(/\//g, '_')
+      .replace(/\+/g, '-');
+
+  const res = await fetch(`${GRAPH_BASE}/shares/${encoded}/driveItem/content`, {
+    headers: { Authorization: `Bearer ${token}` },
+    redirect: 'follow',
+    signal: AbortSignal.timeout(30000),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`Falha ao baixar a planilha pelo link de compartilhamento: ${res.status} ${body.slice(0, 200)}`);
   }
   return res.arrayBuffer();
 }

@@ -5,21 +5,71 @@ import { parseMoneyBR, parseDateBR, diffDays, normalizeHeader } from './formatte
 // testado com um arquivo local, sem precisar das credenciais do Graph.
 
 const FILENAME = 'MANUTENÇÕES REZENDE ENERGIA.xlsx';
-// Trocado de 'Planilha1' (consolidada, 1 linha por OS) para 'Planilha2'
-// (detalhada, 1 linha por ITEM — peça ou serviço — dentro de cada OS).
-// Por isso o parsing abaixo tem uma etapa extra que a Planilha1 não
-// precisava: agrupar as linhas por Nº PEDIDO antes de calcular os KPIs
-// (ver groupByPedido / buildOrdemFromGrupo).
-const SHEET_NAME = 'Planilha2';
 
-// Nomes de coluna como aparecem hoje na Planilha2 (ver normalizeHeader) ->
-// chave interna que usamos daqui pra frente. Casar por nome (não por
-// índice) é o que deixa isso resistente a alguém reordenar colunas no
-// SharePoint. 'N° PEDIDO' aparece com dois símbolos diferentes dependendo
-// de como foi digitado na planilha (° grau ou º ordinal) — mapeamos os dois.
+// ── Onde está a planilha ─────────────────────────────────────────────────────
+// Opcional: link de compartilhamento do SharePoint da planilha ATUAL. Se
+// definido (variável MANUTENCAO_SHARE_URL no Render), é usado no lugar da
+// busca por nome — identifica o arquivo exato, mesmo que haja outro com o
+// mesmo nome em outra pasta. Se falhar, cai para a busca por nome.
+const SHARE_URL = process.env.MANUTENCAO_SHARE_URL || '';
+
+// ── Qual aba ler ─────────────────────────────────────────────────────────────
+// A planilha agora tem uma aba por MÊS (OUTUBRO, NOVEMBRO, ...), em vez da
+// antiga 'Planilha2'. Regras:
+//  1) MANUTENCAO_SHEET (opcional, no Render) força uma ou mais abas, separadas
+//     por vírgula — ex.: "OUTUBRO" ou "SETEMBRO,OUTUBRO".
+//  2) Sem isso, lê a aba do mês atual e a do mês anterior (quando existirem),
+//     para que os filtros "30 dias" e "este mês" não percam o fim do mês
+//     passado na virada de mês.
+//  3) Se nenhuma aba de mês for encontrada, tenta a antiga 'Planilha2'.
+const MESES = [
+  'JANEIRO', 'FEVEREIRO', 'MARCO', 'ABRIL', 'MAIO', 'JUNHO',
+  'JULHO', 'AGOSTO', 'SETEMBRO', 'OUTUBRO', 'NOVEMBRO', 'DEZEMBRO',
+];
+const LEGACY_SHEET = 'Planilha2';
+
+function sheetsToRead(workbook, now = new Date()) {
+  const byNorm = new Map(workbook.SheetNames.map((n) => [normalizeHeader(n), n]));
+
+  const forced = (process.env.MANUTENCAO_SHEET || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (forced.length) {
+    const found = forced.map((n) => byNorm.get(normalizeHeader(n))).filter(Boolean);
+    if (!found.length) {
+      throw new Error(
+        `Aba(s) '${forced.join(', ')}' não encontrada(s). Abas disponíveis: ${workbook.SheetNames.join(', ')}`
+      );
+    }
+    return found;
+  }
+
+  const mesAtual = now.getMonth();
+  const mesAnterior = (mesAtual + 11) % 12;
+  const found = [MESES[mesAnterior], MESES[mesAtual]]
+    .map((n) => byNorm.get(n))
+    .filter(Boolean);
+  if (found.length) return found;
+
+  const legacy = byNorm.get(normalizeHeader(LEGACY_SHEET));
+  if (legacy) return [legacy];
+
+  throw new Error(
+    `Nenhuma aba de manutenção encontrada (procurei ${MESES[mesAnterior]}, ${MESES[mesAtual]} e ${LEGACY_SHEET}). Abas disponíveis: ${workbook.SheetNames.join(', ')}`
+  );
+}
+
+// ── Colunas ──────────────────────────────────────────────────────────────────
+// Nomes de coluna (já normalizados por normalizeHeader: sem acento, maiúsculo)
+// -> chave interna. Casar por nome (não por índice) deixa isso resistente a
+// reordenação de colunas. Cada chave aceita mais de um nome, porque a planilha
+// mudou de cabeçalho ao longo do tempo (ex.: 'DESCRICAO DO ITEM' -> 'DESCRICAO').
+// 'N° PEDIDO' pode vir com ° (grau) ou º (ordinal) — mapeamos os dois.
 const COLUMN_MAP = {
   'N° PEDIDO': 'pedido',
   'Nº PEDIDO': 'pedido',
+  'N PEDIDO': 'pedido',
   'EQUIPE': 'equipe',
   'PLACA': 'placa',
   'MODELO': 'modelo',
@@ -31,6 +81,7 @@ const COLUMN_MAP = {
   'TIPO DE MANUTENCAO': 'tipoManutencao', // PREVENTIVA | CORRETIVA (por item)
   'TIPO': 'tipoItem', // PEÇA | SERVIÇO (não confundir com tipoManutencao acima)
   'QTD': 'qtd',
+  'DESCRICAO': 'descricaoItem',
   'DESCRICAO DO ITEM': 'descricaoItem',
   'VALOR UNITARIO': 'valorUnitario',
   'VALOR TOTAL': 'valorTotalItem',
@@ -38,16 +89,25 @@ const COLUMN_MAP = {
   'OBSERVACAO': 'observacao',
 };
 
+// Coluna nova (aba OUTUBRO): indica se o veículo é LOCADO ou PRÓPRIO. Como o
+// texto exato do cabeçalho pode variar ('LOCADO/PROPRIO', 'LOCADO / PROPRIO',
+// 'LOCADO'...), casamos por conter 'LOCADO' ou 'PROPRIO'.
+function keyForHeader(normalized) {
+  if (COLUMN_MAP[normalized]) return COLUMN_MAP[normalized];
+  if (normalized.includes('LOCADO') || normalized.includes('PROPRIO')) return 'propriedade';
+  return null;
+}
+
 // Status que indicam que o valor ainda não está fechado (orçamento/cotação
-// em aberto) — mesmo critério que a Planilha1 usava para separar custo
-// confirmado de custo pendente estimado.
+// em aberto) — custo só estimado, não confirmado. ATENÇÃO: a aba OUTUBRO usa
+// outros rótulos (LIBERADO, ENVIADO, PARADO, EXECUCAO). Hoje só os dois
+// abaixo contam como "pendente"; se algum dos novos também significar valor
+// em aberto, acrescente aqui (sem acento, maiúsculo).
 const STATUS_PENDENTES = new Set(['EM ORCAMENTO', 'COTACAO']);
 
 function rowsFromSheet(workbook, sheetName) {
   const sheet = workbook.Sheets[sheetName];
-  if (!sheet) {
-    throw new Error(`Aba '${sheetName}' não encontrada em ${FILENAME}. Abas disponíveis: ${workbook.SheetNames.join(', ')}`);
-  }
+  if (!sheet) return [];
   // raw:true (padrão) devolve o valor tipado da célula — number puro para
   // colunas numéricas com formato de moeda aplicado, Date para datas (com
   // cellDates:true), ou a string exata quando a célula é texto livre (caso
@@ -56,38 +116,65 @@ function rowsFromSheet(workbook, sheetName) {
   const raw = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
   if (raw.length < 2) return [];
 
-  const headerRow = raw[0].map((h) => normalizeHeader(h));
-  const keyByCol = headerRow.map((h) => COLUMN_MAP[h] ?? null);
+  // A linha de cabeçalho é a primeira (entre as 10 primeiras) que contém PLACA.
+  let headerIdx = raw.slice(0, 10).findIndex((line) =>
+    (line || []).some((h) => normalizeHeader(h) === 'PLACA')
+  );
+  if (headerIdx < 0) headerIdx = 0;
+
+  const headerRow = raw[headerIdx].map((h) => normalizeHeader(h));
+  const keyByCol = headerRow.map((h) => keyForHeader(h));
 
   const rows = [];
-  for (let i = 1; i < raw.length; i += 1) {
+  for (let i = headerIdx + 1; i < raw.length; i += 1) {
     const line = raw[i];
     if (!line || line.every((c) => c === null || c === '')) continue;
-    const record = {};
+    const record = { __sheet: sheetName };
     keyByCol.forEach((key, col) => {
       if (key) record[key] = line[col];
     });
-    // Linha em branco de verdade (sem placa e sem pedido) — pula. A
-    // Planilha2 tem algumas linhas totalmente vazias entre pedidos.
+    // Linha em branco de verdade (sem placa e sem pedido) — pula.
     if (!record.placa && !record.pedido) continue;
     rows.push(record);
   }
   return rows;
 }
 
-// Agrupa as linhas de item pelo Nº PEDIDO, preservando a ordem de
-// primeira aparição (mesma ordem da planilha).
+// Texto estável de uma data (Date ou string) para compor chaves de agrupamento.
+function dateKey(v) {
+  const d = parseDateBR(v);
+  return d ? d.toISOString().slice(0, 10) : '';
+}
+
+// Agrupa as linhas de ITEM em ordens de serviço (OS).
+//  - Se a linha tem Nº PEDIDO, o pedido é a chave (como sempre foi).
+//  - Se NÃO tem (na aba OUTUBRO a coluna vem vazia), agrupa linhas
+//    consecutivas da mesma placa + oficina + datas de parada/aprovação/saída
+//    — itens de uma mesma OS vêm juntos e repetem esses campos. Linhas
+//    sem nada disso viram uma OS cada.
+// Preserva a ordem de primeira aparição (mesma ordem da planilha).
 function groupByPedido(rows) {
   const order = [];
   const map = new Map();
-  for (const row of rows) {
-    const key = String(row.pedido ?? '').trim() || `__sem_pedido_${order.length}`;
+  rows.forEach((row, idx) => {
+    const pedido = String(row.pedido ?? '').trim();
+    let key;
+    if (pedido) {
+      key = `P|${row.__sheet}|${pedido}`;
+    } else {
+      const placa = String(row.placa ?? '').trim().toUpperCase();
+      const oficina = String(row.oficina ?? '').trim().toUpperCase();
+      const datas = [row.dataParada, row.dataAprovacao, row.dataSaida].map(dateKey).join('|');
+      key = placa
+        ? `S|${row.__sheet}|${placa}|${oficina}|${datas}`
+        : `L|${row.__sheet}|${idx}`;
+    }
     if (!map.has(key)) {
       map.set(key, []);
       order.push(key);
     }
     map.get(key).push(row);
-  }
+  });
   return order.map((key) => map.get(key));
 }
 
@@ -103,9 +190,8 @@ function firstNonEmpty(grupo, field) {
 }
 
 // Valor mais frequente de um campo dentro do grupo (empate resolvido pela
-// primeira ocorrência). Usado para STATUS, que na Planilha2 vem repetido
-// em cada linha de item — normalmente idêntico, mas por segurança pegamos
-// a moda em vez de simplesmente a primeira linha.
+// primeira ocorrência). Usado para STATUS, que vem repetido em cada linha de
+// item — normalmente idêntico, mas por segurança pegamos a moda.
 function mostCommon(grupo, field) {
   const counts = new Map();
   for (const row of grupo) {
@@ -130,12 +216,11 @@ function buildOrdemFromGrupo(grupo) {
   const status = mostCommon(grupo, 'status');
   const statusNormalizado = normalizeHeader(status ?? '');
 
-  // Tipo de manutenção da OS: a Planilha2 permite itens preventivos e
-  // corretivos misturados no mesmo pedido (ex.: revisão preventiva que
-  // aproveitou pra trocar uma peça quebrada). Classificamos a OS como
+  // Tipo de manutenção da OS: a planilha permite itens preventivos e
+  // corretivos misturados no mesmo pedido. Classificamos a OS como
   // CORRETIVA se qualquer item dela for corretivo — senão, PREVENTIVA.
   const tiposManutencao = grupo
-    .map((r) => String(r.tipoManutencao ?? '').trim().toUpperCase())
+    .map((r) => normalizeHeader(r.tipoManutencao))
     .filter(Boolean);
   const tipo = tiposManutencao.includes('CORRETIVA')
     ? 'CORRETIVA'
@@ -151,11 +236,14 @@ function buildOrdemFromGrupo(grupo) {
   const temAlgumValor = grupo.some((r) => parseMoneyBR(r.valorTotalItem) !== null);
   const pendente = STATUS_PENDENTES.has(statusNormalizado);
 
+  const propriedadeBruta = firstNonEmpty(grupo, 'propriedade');
+
   return {
     pedido: String(grupo[0]?.pedido ?? '').trim() || null,
     placa: String(firstNonEmpty(grupo, 'placa') ?? '').trim(),
     modelo: String(firstNonEmpty(grupo, 'modelo') ?? '').trim(),
     oficina: String(firstNonEmpty(grupo, 'oficina') ?? '').trim(),
+    propriedade: propriedadeBruta ? String(propriedadeBruta).trim() : null, // LOCADO/PROPRIO (ou locadora)
     tipo, // PREVENTIVA | CORRETIVA
     status: status || null,
     dataParada: dataParada ? dataParada.toISOString().slice(0, 10) : null,
@@ -248,7 +336,8 @@ function groupSumCount(ordens, keyFn) {
 // tela (ver public/app.js), repassado por fetchManutencao/server/index.js.
 export function computeFromBuffer(buffer, periodo = '7dias') {
   const workbook = XLSX.read(buffer, { type: 'array', cellDates: true });
-  const raw = rowsFromSheet(workbook, SHEET_NAME);
+  const abas = sheetsToRead(workbook);
+  const raw = abas.flatMap((aba) => rowsFromSheet(workbook, aba));
   const grupos = groupByPedido(raw);
   const todasOrdens = grupos.map(buildOrdemFromGrupo);
   const { filtradas: ordens, label: periodoLabel } = filtrarPorPeriodo(todasOrdens, periodo);
@@ -263,6 +352,7 @@ export function computeFromBuffer(buffer, periodo = '7dias') {
   return {
     geradoEm: new Date().toISOString(),
     periodo: periodoLabel,
+    abasLidas: abas,
     totalOrdens: ordens.length,
     custoConfirmado: sum(confirmadas.map((o) => o.custoConfirmado)),
     custoPendenteEstimado: sum(pendentes.map((o) => o.custoPendenteEstimado)),
@@ -287,7 +377,15 @@ export function computeFromBuffer(buffer, periodo = '7dias') {
 }
 
 export async function fetchManutencao(periodo = '7dias') {
-  const { downloadWorkbookByName } = await import('./sharepoint.js');
-  const buffer = await downloadWorkbookByName(FILENAME);
+  const { downloadWorkbookByName, downloadWorkbookByShareUrl } = await import('./sharepoint.js');
+  let buffer;
+  if (SHARE_URL) {
+    try {
+      buffer = await downloadWorkbookByShareUrl(SHARE_URL);
+    } catch (err) {
+      console.error('[manutencao] link de compartilhamento falhou, tentando pelo nome:', err?.message || err);
+    }
+  }
+  if (!buffer) buffer = await downloadWorkbookByName(FILENAME);
   return computeFromBuffer(buffer, periodo);
 }
