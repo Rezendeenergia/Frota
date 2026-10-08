@@ -5,6 +5,7 @@
 const REFRESH_MS = 5 * 60 * 1000;       // TV pergunta a cada 5 min...
 const RELOAD_SAFETY_MS = 6 * 60 * 60 * 1000; // ...mas recarrega a página inteira a cada 6h (evita vazamento de memória em sessão infinita)
 const STALE_AFTER_MS = 45 * 60 * 1000;  // se o payload for mais velho que isso, mostra aviso
+const FETCH_TIMEOUT_MS = 20 * 1000;     // sem resposta em 20 s -> conta como falha (antes ficava pendurado)
 
 // Cor única para todas as barras de gráfico do painel (Manutenção,
 // Abastecimento e bombonas) — pedido do presidente, substitui o antigo
@@ -14,6 +15,13 @@ const BAR_COLOR = '#f7931e';
 function fmtBRL(n) {
   if (n === null || n === undefined || Number.isNaN(n)) return '—';
   return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
+}
+
+// Com centavos — para valores pequenos como preço por litro (antes R$ 7,54
+// aparecia como "R$ 8").
+function fmtBRL2(n) {
+  if (n === null || n === undefined || Number.isNaN(n)) return '—';
+  return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function fmtNum(n, opts = {}) {
@@ -158,8 +166,16 @@ function renderManutencao(container, data) {
   const custoCorretiva = porTipo.find((t) => t.chave === 'Corretiva')?.custo ?? 0;
   const pctDoTotal = (v) => (data.custoConfirmado ? `${Math.round((v / data.custoConfirmado) * 100)}% do custo confirmado` : null);
 
+  // Rodapé do 1º card: total de ordens e, quando houver, quanto ainda está em
+  // aberto (OS paradas / em execução / em cotação) — esse valor NÃO entra no
+  // custo confirmado, então sem esta linha ele ficaria invisível na tela.
+  const pendente = data.custoPendenteEstimado ?? 0;
+  const footCusto = pendente > 0
+    ? `${fmtNum(data.totalOrdens)} ordens · +${fmtBRL(pendente)} em aberto (${fmtNum(data.qtdPendentes)})`
+    : `${fmtNum(data.totalOrdens)} ordens no total`;
+
   const kpis = el('div', { class: 'kpi-grid' }, [
-    kpiTile('Custo confirmado', fmtBRL(data.custoConfirmado), `${fmtNum(data.totalOrdens)} ordens no total`),
+    kpiTile('Custo confirmado', fmtBRL(data.custoConfirmado), footCusto),
     kpiTile('Gasto com preventiva', fmtBRL(custoPreventiva), pctDoTotal(custoPreventiva)),
     kpiTile('Tempo parado (médio)', fmtDias(data.tempoMedioParadoDias), data.tempoMaxParadoDias != null ? `pico: ${fmtDias(data.tempoMaxParadoDias)}` : null),
     kpiTile('Gasto com corretiva', fmtBRL(custoCorretiva), pctDoTotal(custoCorretiva)),
@@ -186,7 +202,7 @@ function renderAbastecimento(container, data) {
     // pequeno com o custo total dos últimos 6 meses (não segue o filtro de
     // período — é sempre os últimos 6 meses corridos, ver server.js/Abast).
     chartTile('Custo total por mês (6 meses)', data.custoPorMes || []),
-    kpiTile('Preço médio/L', data.totalLitros ? fmtBRL(data.custoTotal / data.totalLitros) : '—', null),
+    kpiTile('Preço médio/L', data.totalLitros ? fmtBRL2(data.custoTotal / data.totalLitros) : '—', null),
   ]);
   container.appendChild(kpis);
   container.appendChild(miniBars('Valor por tipo de combustível', data.porTipoCombustivel || []));
@@ -222,9 +238,12 @@ function renderEstoque(container, data) {
 function updateClock() {
   const now = new Date();
   document.getElementById('clock').textContent = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-  document.getElementById('dateLabel').textContent = now.toLocaleDateString('pt-BR', {
-    weekday: 'long', day: '2-digit', month: 'long',
-  });
+  const dateEl = document.getElementById('dateLabel');
+  const dataTxt = now.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' });
+  // Só a 1ª letra maiúscula. O CSS tinha `text-transform: capitalize`, que
+  // deixava "Quinta-Feira, 08 De Outubro"; aqui anulamos isso sem mexer no HTML.
+  dateEl.style.textTransform = 'none';
+  dateEl.textContent = dataTxt.charAt(0).toUpperCase() + dataTxt.slice(1);
 }
 
 function updateStatus(payload) {
@@ -260,26 +279,39 @@ function setupPeriodFilter() {
       currentPeriodo = periodo;
       buttons.forEach((b) => b.classList.toggle('active', b === btn));
       // force=1: troca de filtro deve refletir na hora, sem esperar o cache
-      // do servidor vencer (ver server/index.js).
+      // do servidor vencer (ver server/index.js — o servidor ignora force se
+      // o cache tiver menos de 20 s).
       loadPainel({ force: true });
     });
   });
 }
 
 // ---------- ciclo principal ----------
+// Se duas buscas se sobrepõem (ex.: cliques rápidos no filtro), só a mais
+// recente pode desenhar na tela — senão uma resposta lenta de "30 dias"
+// poderia sobrescrever a de "Hoje" já exibida.
+let loadSeq = 0;
+
 async function loadPainel({ force = false } = {}) {
+  const mySeq = ++loadSeq;
+  const periodoPedido = currentPeriodo;
   try {
-    const params = new URLSearchParams({ periodo: currentPeriodo });
+    const params = new URLSearchParams({ periodo: periodoPedido });
     if (force) params.set('force', '1');
-    const res = await fetch(`/api/painel?${params.toString()}`, { cache: 'no-store' });
+    const res = await fetch(`/api/painel?${params.toString()}`, {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const payload = await res.json();
+    if (mySeq !== loadSeq) return; // chegou uma resposta mais nova enquanto esta voltava
     renderManutencao(document.getElementById('manutencaoBody'), payload.manutencao);
     renderAbastecimento(document.getElementById('abastecimentoBody'), payload.abastecimento);
     renderEstoque(document.getElementById('estoqueBody'), payload.estoque);
     updateStatus(payload);
   } catch (err) {
     console.error('Falha ao carregar /api/painel:', err);
-    updateStatus(null);
+    if (mySeq === loadSeq) updateStatus(null);
   }
 }
 
