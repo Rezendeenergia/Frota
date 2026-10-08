@@ -99,11 +99,10 @@ function keyForHeader(normalized) {
 }
 
 // Status que indicam que o valor ainda não está fechado (orçamento/cotação
-// em aberto) — custo só estimado, não confirmado. ATENÇÃO: a aba OUTUBRO usa
-// outros rótulos (LIBERADO, ENVIADO, PARADO, EXECUCAO). Hoje só os dois
-// abaixo contam como "pendente"; se algum dos novos também significar valor
-// em aberto, acrescente aqui (sem acento, maiúsculo).
-const STATUS_PENDENTES = new Set(['EM ORCAMENTO', 'COTACAO']);
+// em aberto, veículo ainda parado ou serviço em execução) — custo só
+// estimado, não confirmado. Rótulos sem acento e em maiúsculo (ver
+// normalizeHeader). LIBERADO e ENVIADO contam como custo confirmado.
+const STATUS_PENDENTES = new Set(['EM ORCAMENTO', 'COTACAO', 'PARADO', 'EXECUCAO']);
 
 function rowsFromSheet(workbook, sheetName) {
   const sheet = workbook.Sheets[sheetName];
@@ -274,10 +273,24 @@ function sum(arr) {
 // abastecimento (repositório Abast, backend/server.js: periodoParaIntervalo),
 // só que em JS puro (aqui não há banco — os dados vêm da planilha inteira já
 // em memória).
+// "Hoje" é sempre o dia em Santarém (America/Santarem, UTC-3, sem horário de
+// verão). Antes usava UTC: depois das 21h locais o servidor (que roda em UTC)
+// já estava no dia seguinte e o filtro "Hoje" aparecia vazio.
+const TZ = 'America/Santarem';
+
+function hojeLocal() {
+  // 'en-CA' formata como AAAA-MM-DD
+  return new Date().toLocaleDateString('en-CA', { timeZone: TZ });
+}
+
+function somaDias(isoDate, dias) {
+  const d = new Date(`${isoDate}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + dias);
+  return d.toISOString().slice(0, 10);
+}
+
 function periodoParaIntervalo(periodo) {
-  const hoje = new Date();
-  const fmt = (d) => d.toISOString().slice(0, 10);
-  const fim = fmt(hoje);
+  const fim = hojeLocal();
   let inicio;
   let label;
   switch (periodo) {
@@ -286,16 +299,16 @@ function periodoParaIntervalo(periodo) {
       label = 'hoje';
       break;
     case '30dias':
-      inicio = fmt(new Date(hoje.getTime() - 29 * 86400000));
+      inicio = somaDias(fim, -29);
       label = 'últimos 30 dias';
       break;
     case 'mes':
-      inicio = fmt(new Date(hoje.getFullYear(), hoje.getMonth(), 1));
+      inicio = `${fim.slice(0, 8)}01`;
       label = 'este mês';
       break;
     case '7dias':
     default:
-      inicio = fmt(new Date(hoje.getTime() - 6 * 86400000));
+      inicio = somaDias(fim, -6);
       label = 'últimos 7 dias';
       break;
   }
@@ -366,7 +379,12 @@ export function computeFromBuffer(buffer, periodo = '7dias') {
       { chave: 'Corretiva', qtd: corretivas.length, custo: sum(corretivas.map((o) => o.custoConfirmado)) },
     ],
     porOficina: groupSumCount(ordens, (o) => o.oficina || null),
-    porVeiculo: groupSumCount(ordens, (o) => (o.placa ? `${o.placa} · ${o.modelo}` : null)),
+    porVeiculo: groupSumCount(ordens, (o) => {
+      if (!o.placa) return null;
+      const modelo = (o.modelo || '').trim();
+      const modeloUtil = modelo && !/^[-–—.]+$/.test(modelo);
+      return modeloUtil ? `${o.placa} · ${modelo}` : o.placa;
+    }),
     porStatus: [...ordens.reduce((map, o) => {
       const key = o.status || 'Sem status';
       map.set(key, (map.get(key) ?? 0) + 1);
@@ -376,16 +394,40 @@ export function computeFromBuffer(buffer, periodo = '7dias') {
   };
 }
 
-export async function fetchManutencao(periodo = '7dias') {
-  const { downloadWorkbookByName, downloadWorkbookByShareUrl } = await import('./sharepoint.js');
-  let buffer;
-  if (SHARE_URL) {
-    try {
-      buffer = await downloadWorkbookByShareUrl(SHARE_URL);
-    } catch (err) {
-      console.error('[manutencao] link de compartilhamento falhou, tentando pelo nome:', err?.message || err);
+// Cache do arquivo baixado: o painel pede 4 períodos (hoje/7/30/mês) e antes
+// cada um baixava a planilha inteira de novo. Agora baixa uma vez e reaproveita
+// por 4 minutos (menos que o TTL de 5 min do cache do servidor).
+const FILE_TTL_MS = 4 * 60 * 1000;
+let fileCache = { buffer: null, at: 0, pending: null };
+
+async function baixarPlanilha() {
+  if (fileCache.buffer && Date.now() - fileCache.at < FILE_TTL_MS) return fileCache.buffer;
+  if (fileCache.pending) return fileCache.pending; // pedidos simultâneos dividem o mesmo download
+
+  fileCache.pending = (async () => {
+    const { downloadWorkbookByName, downloadWorkbookByShareUrl } = await import('./sharepoint.js');
+    let buffer;
+    if (SHARE_URL) {
+      try {
+        buffer = await downloadWorkbookByShareUrl(SHARE_URL);
+      } catch (err) {
+        console.error('[manutencao] link de compartilhamento falhou, tentando pelo nome:', err?.message || err);
+      }
     }
+    if (!buffer) buffer = await downloadWorkbookByName(FILENAME);
+    fileCache.buffer = buffer;
+    fileCache.at = Date.now();
+    return buffer;
+  })();
+
+  try {
+    return await fileCache.pending;
+  } finally {
+    fileCache.pending = null;
   }
-  if (!buffer) buffer = await downloadWorkbookByName(FILENAME);
+}
+
+export async function fetchManutencao(periodo = '7dias') {
+  const buffer = await baixarPlanilha();
   return computeFromBuffer(buffer, periodo);
 }
