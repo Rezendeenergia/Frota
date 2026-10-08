@@ -317,14 +317,19 @@ function periodoParaIntervalo(periodo) {
 
 // Filtra as ordens pela janela [inicio, fim], usando a data da parada como
 // referência (ou a data de saída, se a parada não tiver sido preenchida na
-// planilha) — mesma lógica do `date::date BETWEEN` usado no lado do
-// abastecimento. Ordem sem nenhuma das duas datas fica fora do período (não
-// dá pra saber quando ela aconteceu).
+// planilha). Ordem sem nenhuma das duas datas fica fora do período (não dá pra
+// saber quando ela aconteceu).
+//
+// EXCEÇÃO: ordem ainda ABERTA (sem data de saída) aparece em qualquer período,
+// mesmo que a parada seja anterior à janela. Antes, um veículo parado desde
+// 01/09 e ainda em execução sumia do painel em "7 dias", "30 dias" e "este
+// mês" — justamente o caso que mais precisa de atenção.
 function filtrarPorPeriodo(ordens, periodo) {
   const { inicio, fim, label } = periodoParaIntervalo(periodo);
   const filtradas = ordens.filter((o) => {
     const data = o.dataParada || o.dataSaida;
     if (!data) return false;
+    if (!o.dataSaida && data <= fim) return true; // ainda aberta
     return data >= inicio && data <= fim;
   });
   return { filtradas, label };
