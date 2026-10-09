@@ -7,14 +7,14 @@
 //   • Sábado: expediente das 08:00 às 12:00; fora disso = fora de horário.
 //   • Domingo e feriado: o dia inteiro é fora de horário.
 //   • Viagem que encosta no período proibido conta INTEIRA (ex.: 07:53–08:26).
-//   • Viagens abaixo de 0,5 km são ignoradas (manobra/pátio).
+//   • Viagens de até 1 km (inclusive) são ignoradas (manobra/pátio/deslocamento curto).
 //   • Não há plantão: ninguém é "autorizado". Lancha entra na mesma regra.
 
 export const REGRAS_PADRAO = {
   inicioExpediente: 8,   // hora (inclusive)
   fimExpediente: 19,     // hora (exclusive)
   fimSabado: 12,         // sábado: expediente até esta hora (exclusive)
-  kmMinimo: 0.5,
+  kmIgnorarAte: 1,      // viagens com km <= este valor são ignoradas
 };
 
 // ---------- feriados ----------
@@ -253,7 +253,7 @@ export function analisarViagens(viagens, { regras = REGRAS_PADRAO, feriadosExtra
   for (const v of viagens) {
     const motivo = classificar(v, cal, regras);
     if (!motivo) continue;
-    if ((v.km ?? 0) < regras.kmMinimo) { ignoradasCurtas++; continue; }
+    if ((v.km ?? 0) <= regras.kmIgnorarAte) { ignoradasCurtas++; continue; }
     fora.push({ ...v, motivo, motoristaExib: v.motorista || NAO_IDENTIFICADO });
   }
   fora.sort((a, b) => a.inicio - b.inicio);
