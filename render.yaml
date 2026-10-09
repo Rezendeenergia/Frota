@@ -24,4 +24,11 @@ services:
         sync: false
       - key: ABASTECIMENTO_API_KEY
         sync: false
+      # Rastreamento (/rastreamento) — ver README.
+      - key: RAST_SUPABASE_SERVICE_KEY
+        sync: false
+      - key: RAST_SESSION_SECRET
+        sync: false
+      - key: RAST_ADMIN_SENHA_INICIAL
+        sync: false
     autoDeploy: true

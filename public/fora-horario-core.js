@@ -237,8 +237,14 @@ export function classificar(v, cal, regras = REGRAS_PADRAO) {
 // ---------- análise ----------
 export const NAO_IDENTIFICADO = 'Não identificado';
 
-export function analisar(linhas, { regras = REGRAS_PADRAO, feriadosExtras = [] } = {}) {
+export function analisar(linhas, opcoes = {}) {
   const { viagens, totalLinhas } = lerViagens(linhas);
+  return analisarViagens(viagens, { ...opcoes, totalLinhas });
+}
+
+// Mesma análise a partir de viagens já lidas (planilha ou histórico do banco).
+export function analisarViagens(viagens, { regras = REGRAS_PADRAO, feriadosExtras = [], totalLinhas = viagens.length } = {}) {
+  regras = { ...REGRAS_PADRAO, ...regras };
   const anos = [...new Set(viagens.flatMap((v) => [v.inicio.getFullYear(), v.fim.getFullYear()]))];
   const cal = montarCalendario(anos, feriadosExtras);
 
