@@ -4,7 +4,8 @@
 //
 // Regras definidas pela empresa (out/2026):
 //   • Expediente: 08:00 às 19:00, segunda a sexta. Fora disso = fora de horário.
-//   • Sábado, domingo e feriado: o dia inteiro é fora de horário.
+//   • Sábado: expediente das 08:00 às 12:00; fora disso = fora de horário.
+//   • Domingo e feriado: o dia inteiro é fora de horário.
 //   • Viagem que encosta no período proibido conta INTEIRA (ex.: 07:53–08:26).
 //   • Viagens abaixo de 0,5 km são ignoradas (manobra/pátio).
 //   • Não há plantão: ninguém é "autorizado". Lancha entra na mesma regra.
@@ -12,6 +13,7 @@
 export const REGRAS_PADRAO = {
   inicioExpediente: 8,   // hora (inclusive)
   fimExpediente: 19,     // hora (exclusive)
+  fimSabado: 12,         // sábado: expediente até esta hora (exclusive)
   kmMinimo: 0.5,
 };
 
@@ -208,8 +210,13 @@ function motivoDoInstante(d, cal, regras) {
   const feriado = cal.get(chaveDia(d));
   if (feriado) return `Feriado (${feriado})`;
   const dow = d.getDay();
-  if (dow === 0 || dow === 6) return dow === 0 ? 'Domingo' : 'Sábado';
+  if (dow === 0) return 'Domingo';
   const h = d.getHours();
+  if (dow === 6) {
+    if (h >= regras.fimSabado) return `Sábado após ${pad2(regras.fimSabado)}h`;
+    if (h < regras.inicioExpediente) return `Sábado antes ${pad2(regras.inicioExpediente)}h`;
+    return null;
+  }
   if (h >= regras.fimExpediente) return `Após ${pad2(regras.fimExpediente)}h`;
   if (h < regras.inicioExpediente) return `Antes ${pad2(regras.inicioExpediente)}h`;
   return null;
@@ -230,8 +237,14 @@ export function classificar(v, cal, regras = REGRAS_PADRAO) {
 // ---------- análise ----------
 export const NAO_IDENTIFICADO = 'Não identificado';
 
-export function analisar(linhas, { regras = REGRAS_PADRAO, feriadosExtras = [] } = {}) {
+export function analisar(linhas, opcoes = {}) {
   const { viagens, totalLinhas } = lerViagens(linhas);
+  return analisarViagens(viagens, { ...opcoes, totalLinhas });
+}
+
+// Mesma análise a partir de viagens já lidas (planilha ou histórico do banco).
+export function analisarViagens(viagens, { regras = REGRAS_PADRAO, feriadosExtras = [], totalLinhas = viagens.length } = {}) {
+  regras = { ...REGRAS_PADRAO, ...regras };
   const anos = [...new Set(viagens.flatMap((v) => [v.inicio.getFullYear(), v.fim.getFullYear()]))];
   const cal = montarCalendario(anos, feriadosExtras);
 

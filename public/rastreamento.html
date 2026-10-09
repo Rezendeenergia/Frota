@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Rastreamento da Frota · Rezende Energia</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+  :root{
+    --page:#0e0d0a; --surface:#17150f; --surface-2:#1e1b13;
+    --text-primary:#f8f5ec; --text-secondary:#c9c2ac; --text-muted:#8f8973;
+    --border:rgba(248,245,236,0.09); --accent:#f0a344; --accent-soft:rgba(240,163,68,0.14);
+    --bar:#f7931e; --warn:#fab219; --critical:#ef4444; --good:#22c55e;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; }
+  body{
+    background: radial-gradient(1200px 600px at 12% -10%, rgba(240,163,68,0.07), transparent 60%), var(--page);
+    color:var(--text-primary); min-height:100vh;
+    font-family:"IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif; font-size:14.5px;
+  }
+  h1,h2,h3{ font-family:"Archivo", system-ui, sans-serif; }
+  a{ color:var(--accent); }
+  [hidden]{ display:none !important; }
+  .shell{ max-width:1320px; margin:0 auto; padding:24px 24px 48px; display:flex; flex-direction:column; gap:18px; }
+
+  header{ display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; }
+  .brand{ display:flex; align-items:center; gap:14px; }
+  .brand .logo{ height:44px; width:auto; }
+  .brand h1{ font-size:22px; font-weight:800; margin:0; letter-spacing:-0.01em; }
+  .brand .sub{ font-size:14px; color:var(--text-muted); margin-top:1px; }
+  .user{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; font-size:13.5px; color:var(--text-muted); }
+  .user b{ color:var(--text-secondary); font-weight:600; }
+  .pill{ font-size:13.5px; color:var(--text-secondary); text-decoration:none; border:1px solid var(--border); border-radius:999px; padding:6px 14px; background:none; cursor:pointer; font-family:inherit; }
+  .pill:hover{ color:var(--text-primary); border-color:var(--text-muted); }
+
+  .card{ background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:18px 20px; }
+  .hint{ font-size:12.5px; color:var(--text-muted); }
+  .rules{ display:flex; flex-wrap:wrap; gap:8px 18px; align-items:center; font-size:13.5px; color:var(--text-muted); }
+  .rules b{ color:var(--text-secondary); font-weight:600; }
+  .rules .chip{ display:inline-flex; align-items:center; gap:6px; }
+  .rules .chip::before{ content:""; width:6px; height:6px; border-radius:50%; background:var(--accent); flex:none; }
+  .rules .link{ margin-left:auto; background:none; border:0; color:var(--text-secondary); cursor:pointer; font:inherit; padding:0; }
+  .rules .link:hover{ color:var(--accent); }
+
+  /* login */
+  .login-wrap{ min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px 16px; }
+  .login{ width:100%; max-width:400px; display:flex; flex-direction:column; gap:16px; }
+  .login .brand{ justify-content:center; text-align:left; }
+  .login form{ display:flex; flex-direction:column; gap:12px; }
+  label.f{ display:flex; flex-direction:column; gap:6px; font-size:13px; color:var(--text-secondary); font-weight:600; }
+  input.in, select.in{
+    background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border); border-radius:9px;
+    padding:9px 11px; font:inherit; font-size:14.5px; min-width:0;
+  }
+  input.in:focus, select.in:focus{ outline:2px solid var(--accent); outline-offset:-1px; border-color:transparent; }
+  .msg{ border-radius:10px; padding:11px 14px; font-size:13.5px; }
+  .msg.err{ border:1px solid rgba(239,68,68,.45); background:rgba(239,68,68,.08); color:#fecaca; }
+  .msg.ok{ border:1px solid rgba(34,197,94,.4); background:rgba(34,197,94,.08); color:#bbf7d0; }
+  .msg.info{ border:1px solid rgba(240,163,68,.4); background:var(--accent-soft); color:#fde3bd; }
+
+  /* abas */
+  .tabs{ display:flex; gap:6px; border-bottom:1px solid var(--border); flex-wrap:wrap; }
+  .tab{ font:inherit; font-weight:600; font-size:14.5px; color:var(--text-muted); background:none; border:0; border-bottom:2px solid transparent; padding:10px 14px; cursor:pointer; margin-bottom:-1px; }
+  .tab:hover{ color:var(--text-primary); }
+  .tab.active{ color:var(--text-primary); border-bottom-color:var(--accent); }
+  .pane{ display:flex; flex-direction:column; gap:18px; }
+
+  /* importação */
+  .drop{
+    border:1.5px dashed rgba(240,163,68,0.45); border-radius:14px; background:var(--surface);
+    padding:22px 20px; text-align:center; cursor:pointer; transition:background .15s, border-color .15s; display:block;
+  }
+  .drop:hover, .drop.over{ background:var(--accent-soft); border-color:var(--accent); }
+  .drop .t{ font-size:16px; font-weight:600; }
+  .drop .d{ color:var(--text-muted); margin-top:6px; font-size:13.5px; }
+  .drop.busy{ pointer-events:none; opacity:.7; }
+
+  .btn{
+    font:inherit; font-weight:600; font-size:14px; border-radius:10px; padding:9px 16px; cursor:pointer;
+    border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary);
+    display:inline-flex; align-items:center; gap:8px; white-space:nowrap;
+  }
+  .btn:hover{ border-color:var(--text-muted); }
+  .btn.primary{ background:var(--accent); border-color:var(--accent); color:#1a1206; }
+  .btn.primary:hover{ filter:brightness(1.06); }
+  .btn.sm{ padding:5px 11px; font-size:13px; border-radius:8px; }
+  .btn:disabled{ opacity:.5; cursor:default; }
+
+  .periodbar{ display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; }
+  .periodbar .quick{ display:flex; gap:6px; flex-wrap:wrap; }
+  .periodbar .sp{ flex:1; }
+  .actions{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .actions .periodo{ margin-right:auto; color:var(--text-secondary); }
+  .actions .periodo b{ color:var(--text-primary); }
+
+  .kpis{ display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); gap:12px; }
+  .kpi{ background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:14px 16px; min-width:0; }
+  .kpi .l{ font-size:12.5px; color:var(--text-muted); font-weight:600; text-transform:uppercase; letter-spacing:.03em; }
+  .kpi .v{ font-family:"Archivo", sans-serif; font-size:26px; font-weight:800; margin-top:4px; font-variant-numeric:tabular-nums; }
+  .kpi .f{ font-size:12.5px; color:var(--text-muted); margin-top:2px; }
+  .kpi.warn .v{ color:var(--warn); }
+
+  .grid2{ display:grid; grid-template-columns: 1.4fr 1fr; gap:18px; }
+  @media (max-width: 1000px){ .grid2{ grid-template-columns:1fr; } }
+
+  h2.sec{ font-size:16px; font-weight:800; margin:0 0 12px; display:flex; align-items:baseline; gap:10px; }
+  h2.sec .n{ font-family:"IBM Plex Sans", sans-serif; font-size:13px; font-weight:500; color:var(--text-muted); }
+  .tbl-wrap{ overflow-x:auto; }
+  table{ width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; }
+  th{ text-align:left; font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); font-weight:600; padding:8px 10px; border-bottom:1px solid var(--border); white-space:nowrap; }
+  td{ padding:8px 10px; border-bottom:1px solid var(--border); vertical-align:top; }
+  tr:last-child td{ border-bottom:0; }
+  td.num, th.num{ text-align:right; white-space:nowrap; }
+  td.nw{ white-space:nowrap; }
+  .muted{ color:var(--text-muted); font-size:12.5px; }
+  .ni{ color:var(--warn); font-weight:600; }
+  .bar{ height:6px; background:var(--surface-2); border-radius:3px; margin-top:6px; overflow:hidden; }
+  .bar > span{ display:block; height:100%; background:var(--bar); border-radius:3px; }
+  .tag{ display:inline-block; font-size:12px; font-weight:600; padding:2px 8px; border-radius:999px; background:var(--accent-soft); color:var(--accent); white-space:nowrap; }
+  .tag.fds{ background:rgba(75,147,232,.15); color:#8cbcf5; }
+  .tag.fer{ background:rgba(239,68,68,.14); color:#fca5a5; }
+  .tag.ok{ background:rgba(34,197,94,.13); color:#86efac; }
+  .tag.off{ background:rgba(143,137,115,.18); color:var(--text-muted); }
+  td.addr{ max-width:300px; color:var(--text-secondary); font-size:13px; }
+  .filtro-tbl{ display:flex; gap:10px; align-items:center; margin-bottom:10px; flex-wrap:wrap; }
+  .vazio{ text-align:center; color:var(--text-muted); padding:34px 16px; }
+  .vazio .t{ font-size:16px; color:var(--text-secondary); font-weight:600; margin-bottom:6px; }
+
+  .params{ display:flex; gap:14px; align-items:flex-end; flex-wrap:wrap; }
+  .params label.f{ width:150px; }
+  .params .info{ flex:1; min-width:240px; font-size:13px; color:var(--text-muted); line-height:1.55; }
+  .params .info b{ color:var(--text-secondary); }
+
+  .fer-list{ display:flex; flex-wrap:wrap; gap:6px; }
+  .fer-item{ background:var(--surface-2); border:1px solid var(--border); border-radius:999px; padding:4px 6px 4px 12px; font-size:13px; color:var(--text-secondary); display:inline-flex; align-items:center; gap:6px; }
+  .fer-item button{ background:none; border:0; color:var(--text-muted); cursor:pointer; font-size:15px; line-height:1; padding:0 4px; }
+  .fer-item button:hover{ color:var(--critical); }
+
+  .form-row{ display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; }
+  .form-row label.f{ flex:1; min-width:160px; }
+
+  .toast{ position:fixed; bottom:22px; left:50%; transform:translateX(-50%) translateY(20px); opacity:0; background:#f8f5ec; color:#1a1206; padding:10px 18px; border-radius:10px; font-weight:600; transition:all .2s; pointer-events:none; max-width:calc(100% - 32px); text-align:center; z-index:10; }
+  .toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+  .print-only{ display:none; }
+  .loading{ color:var(--text-muted); padding:18px 0; }
+
+  @media (max-width: 640px){
+    .shell{ padding:16px 16px 40px; }
+    .brand .logo{ height:36px; }
+    .brand h1{ font-size:19px; }
+    .kpi .v{ font-size:22px; }
+  }
+
+  /* ---------- impressão / PDF ---------- */
+  @media print{
+    @page{ size:A4 landscape; margin:12mm; }
+    :root{ --page:#fff; --surface:#fff; --surface-2:#f2f0ea; --text-primary:#1f1a12; --text-secondary:#3d382c; --text-muted:#6b6658; --border:#ddd8cc; --accent:#b45309; --accent-soft:#fdf0dc; }
+    body{ background:#fff; font-size:11.5px; }
+    .shell{ padding:0; max-width:none; gap:12px; }
+    .no-print{ display:none !important; }
+    .print-only{ display:block; }
+    .kpi{ break-inside:avoid; }
+    .grid2{ grid-template-columns:1fr 1fr; }
+    .kpi .v{ font-size:19px; }
+    .kpi.warn .v, .ni{ color:#b45309; }
+    .tag{ border:1px solid currentColor; background:none !important; }
+    .tag.fds{ color:#1d4ed8; } .tag.fer{ color:#b91c1c; }
+    tr{ break-inside:avoid; }
+    a{ color:inherit; text-decoration:none; }
+    .quebra{ break-before:page; }
+  }
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div class="login-wrap" id="telaLogin" hidden>
+  <div class="login">
+    <div class="brand">
+      <img class="logo" src="/logo-rezende.png" alt="Rezende Energia">
+      <div><h1>Rastreamento da frota</h1><div class="sub">Acesso restrito · Rezende Energia</div></div>
+    </div>
+    <div class="card">
+      <form id="formLogin" autocomplete="on">
+        <label class="f">E-mail<input class="in" type="email" id="loginEmail" autocomplete="username" required></label>
+        <label class="f">Senha<input class="in" type="password" id="loginSenha" autocomplete="current-password" required></label>
+        <div class="msg err" id="loginErro" hidden></div>
+        <button class="btn primary" type="submit" id="loginBtn" style="justify-content:center">Entrar</button>
+      </form>
+    </div>
+    <div class="hint" style="text-align:center">Sem acesso? Peça à TI.</div>
+  </div>
+</div>
+
+<!-- TROCA DE SENHA -->
+<div class="login-wrap" id="telaSenha" hidden>
+  <div class="login">
+    <div class="brand">
+      <img class="logo" src="/logo-rezende.png" alt="Rezende Energia">
+      <div><h1>Defina sua senha</h1><div class="sub">A senha atual é temporária</div></div>
+    </div>
+    <div class="card">
+      <form id="formSenha">
+        <label class="f">Senha atual (temporária)<input class="in" type="password" id="senhaAtual" autocomplete="current-password" required></label>
+        <label class="f">Nova senha (mín. 8 caracteres)<input class="in" type="password" id="senhaNova" autocomplete="new-password" minlength="8" required></label>
+        <label class="f">Repita a nova senha<input class="in" type="password" id="senhaNova2" autocomplete="new-password" minlength="8" required></label>
+        <div class="msg err" id="senhaErro" hidden></div>
+        <button class="btn primary" type="submit" style="justify-content:center">Salvar e entrar</button>
+      </form>
+    </div>
+    <div style="text-align:center"><button class="pill" type="button" data-sair>Sair</button></div>
+  </div>
+</div>
+
+<!-- APP -->
+<div class="shell" id="telaApp" hidden>
+  <header>
+    <div class="brand">
+      <img class="logo" src="/logo-rezende.png" alt="Rezende Energia">
+      <div>
+        <h1>Rastreamento da frota</h1>
+        <div class="sub">Rezende Energia · análises das planilhas do rastreador, com histórico</div>
+      </div>
+    </div>
+    <div class="user no-print">
+      <span id="userNome"></span>
+      <a class="pill" href="/">Painel</a>
+      <button class="pill" type="button" data-sair>Sair</button>
+    </div>
+  </header>
+
+  <label class="drop no-print" id="drop">
+    <input type="file" id="arquivo" accept=".xlsx" hidden>
+    <div class="t" id="dropT">Importar planilha do rastreador</div>
+    <div class="d" id="dropD">Arraste aqui ou clique. Aceita o relatório de viagens (horário) e o de motor ligado parado; o tipo é reconhecido sozinho. Dados repetidos não são duplicados.</div>
+  </label>
+  <div class="msg no-print" id="importMsg" hidden></div>
+
+  <nav class="tabs no-print" id="tabs">
+    <button class="tab active" data-tab="horario" type="button">Fora de horário</button>
+    <button class="tab" data-tab="ocioso" type="button">Motor ligado parado</button>
+    <button class="tab" data-tab="importacoes" type="button">Importações</button>
+    <button class="tab" data-tab="usuarios" type="button" id="tabUsuarios" hidden>Usuários</button>
+  </nav>
+
+  <!-- período (compartilhado pelas 2 análises) -->
+  <div class="card periodbar no-print" id="periodBar">
+    <label class="f">De<input class="in" type="date" id="perDe"></label>
+    <label class="f">Até<input class="in" type="date" id="perAte"></label>
+    <button class="btn primary" type="button" id="perOk">Consultar</button>
+    <div class="quick">
+      <button class="btn sm" type="button" data-rapido="7">Últimos 7 dias</button>
+      <button class="btn sm" type="button" data-rapido="mes">Este mês</button>
+      <button class="btn sm" type="button" data-rapido="mesant">Mês passado</button>
+      <button class="btn sm" type="button" data-rapido="tudo">Tudo</button>
+    </div>
+  </div>
+
+  <section class="pane" id="pane-horario"></section>
+  <section class="pane" id="pane-ocioso" hidden></section>
+  <section class="pane" id="pane-importacoes" hidden></section>
+  <section class="pane" id="pane-usuarios" hidden></section>
+</div>
+
+<div class="toast" id="toast"></div>
+<script type="module" src="/rastreamento.js"></script>
+</body>
+</html>

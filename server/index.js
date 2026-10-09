@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { fetchManutencao } from './lib/manutencaoService.js';
 import { fetchAbastecimento } from './lib/abastecimentoService.js';
 import { fetchEstoque } from './lib/estoqueService.js';
+import { criarRouter as criarRastreamento } from './lib/rastreamento.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
@@ -81,6 +82,11 @@ async function refreshCache(periodo = DEFAULT_PERIODO) {
 }
 
 const app = express();
+// Render fica atrás de proxy: necessário para IP real (limite de login) e cookie Secure.
+app.set('trust proxy', 1);
+
+// Histórico do rastreamento (login próprio; acessa o Supabase só daqui).
+app.use('/api/rast', criarRastreamento());
 
 app.get('/api/painel', async (req, res) => {
   const forceRequested = ['1', 'true'].includes(String(req.query.force));
@@ -113,11 +119,11 @@ app.get('/api/painel', async (req, res) => {
 
 app.use(express.static(PUBLIC_DIR));
 
-// Relatório de uso de veículos fora do horário (planilha do rastreador).
-// Todo o processamento é no navegador — o servidor só entrega a página.
-app.get('/fora-horario', (req, res) => {
-  res.sendFile(path.join(PUBLIC_DIR, 'fora-horario.html'));
+// Análises do rastreamento (fora de horário + motor ligado parado), com histórico.
+app.get('/rastreamento', (req, res) => {
+  res.sendFile(path.join(PUBLIC_DIR, 'rastreamento.html'));
 });
+app.get(['/fora-horario', '/fora-horario.html'], (req, res) => res.redirect(302, '/rastreamento'));
 
 app.get(/^(?!\/api\/).*/, (req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
