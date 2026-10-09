@@ -69,6 +69,18 @@ async function api(caminho, { method = 'GET', body } = {}) {
   return data;
 }
 
+// ======================= tema claro / noturno =======================
+function aplicarTema(tema) {
+  if (tema === 'dark') document.documentElement.dataset.theme = 'dark';
+  else delete document.documentElement.dataset.theme;
+  try { localStorage.setItem('rast.tema', tema); } catch { /* sem storage: vale só nesta aba */ }
+  document.querySelectorAll('[data-tema]').forEach((b) => { b.textContent = tema === 'dark' ? '☀️ Claro' : '🌙 Noturno'; });
+}
+document.querySelectorAll('[data-tema]').forEach((b) => b.addEventListener('click', () => {
+  aplicarTema(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
+}));
+aplicarTema(document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light');
+
 // ======================= telas / login =======================
 let usuario = null;
 function mostrarTela(id) {
@@ -353,7 +365,7 @@ function renderHorario(linhasBanco) {
       <span class="chip"><span><b>Expediente:</b> seg. a sex., ${pad2(regras.inicioExpediente)}h às ${pad2(regras.fimExpediente)}h · sábado, ${pad2(regras.inicioExpediente)}h às ${pad2(regras.fimSabado)}h</span></span>
       <span class="chip"><span><b>Domingo e feriado:</b> dia inteiro</span></span>
       <span class="chip"><span>Viagem que encosta no horário proibido conta <b>inteira</b></span></span>
-      <span class="chip"><span>Ignora viagens abaixo de <b>${String(regras.kmMinimo).replace('.', ',')} km</b></span></span>
+      <span class="chip"><span>Ignora viagens de <b>até ${String(regras.kmIgnorarAte).replace('.', ',')} km</b></span></span>
       <button class="link no-print" type="button" id="ferToggle">Feriados (${estado.config.feriados_extras.length} extras) ▾</button>
       <div id="ferBox" class="no-print" style="width:100%" hidden>
         <div class="hint" style="margin:10px 0">Automáticos: feriados nacionais (inclui Sexta-feira Santa e Consciência Negra) e Adesão do Pará (15/08). Cadastre aqui feriados municipais e pontos facultativos — vale para todos os usuários e para o histórico.</div>
@@ -508,7 +520,7 @@ async function salvarFeriados(novaLista) {
 function excelHorario(r) {
   const t = r.totais;
   const reg = { ...REGRAS_PADRAO, ...(r.regras || {}) };
-  const criterio = `Expediente de segunda a sexta, das ${pad2(reg.inicioExpediente)}h às ${pad2(reg.fimExpediente)}h, e sábado das ${pad2(reg.inicioExpediente)}h às ${pad2(reg.fimSabado)}h. Domingos e feriados contam o dia inteiro como fora do horário. Viagem que encosta no período fora do expediente conta inteira. Viagens abaixo de ${String(reg.kmMinimo).replace('.', ',')} km desconsideradas.`;
+  const criterio = `Expediente de segunda a sexta, das ${pad2(reg.inicioExpediente)}h às ${pad2(reg.fimExpediente)}h, e sábado das ${pad2(reg.inicioExpediente)}h às ${pad2(reg.fimSabado)}h. Domingos e feriados contam o dia inteiro como fora do horário. Viagem que encosta no período fora do expediente conta inteira. Viagens de até ${String(reg.kmIgnorarAte).replace('.', ',')} km desconsideradas.`;
   const feriados = r.feriadosNoPeriodo.length ? r.feriadosNoPeriodo.map((f) => `${diaBR(f.data)} (${f.nome})`).join('; ') : 'Nenhum';
   const L = []; const alt = {};
   L.push([{ v: 'Uso de veículos fora do horário de expediente', s: E.titulo }]); alt[0] = 24;

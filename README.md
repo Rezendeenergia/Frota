@@ -116,7 +116,7 @@ Se o serviço for criado no plano **free**, ele "dorme" após um período sem ac
 
 Página com login para analisar as planilhas exportadas do rastreador, com histórico:
 
-- **Fora de horário** — viagens fora do expediente (seg–sex 08h–19h; sábado 08h–12h; domingo e feriado o dia todo; viagem que encosta no horário proibido conta inteira; ignora < 0,5 km). Feriados municipais/pontos facultativos são cadastrados na própria tela.
+- **Fora de horário** — viagens fora do expediente (seg–sex 08h–19h; sábado 08h–12h; domingo e feriado o dia todo; viagem que encosta no horário proibido conta inteira; ignora viagens de até 1 km). Feriados municipais/pontos facultativos são cadastrados na própria tela.
 - **Motor ligado parado** — trechos com mais de 5 min de motor ligado parado; litros = horas × L/h (parâmetro editável na tela) e R$ = litros × preço médio pago no período (tabela `fuel_records` do sistema de abastecimento).
 - **Importações** — cada planilha importada fica registrada (quem, quando, novas × já existentes) e o arquivo original é guardado como evidência (bucket privado `rast-evidencias`).
 - **Usuários** — o administrador cria acessos com senha temporária (trocada no 1º login).

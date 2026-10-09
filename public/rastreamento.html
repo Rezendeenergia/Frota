@@ -6,6 +6,9 @@
 <meta name="robots" content="noindex">
 <title>Rastreamento da Frota · Rezende Energia</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<script>
+  try { if (localStorage.getItem('rast.tema') === 'dark') document.documentElement.dataset.theme = 'dark'; } catch (e) { /* sem storage: tema claro */ }
+</script>
 <style>
   :root{
     /* Paleta "Areia" — base clara e quente com o laranja da Rezende */
@@ -14,10 +17,34 @@
     --border:#e7dfd3; --accent:#d9700a; --accent-hover:#c26208; --accent-soft:#fcebd7;
     --bar:#f7931e; --bar-track:#efe7db; --warn:#b45309; --critical:#b91c1c; --good:#15803d;
     --shadow:0 1px 2px rgba(60,40,10,.05), 0 1px 1px rgba(60,40,10,.03);
+    --on-accent:#fff; --input-bg:#fff; --drop-border:#e3b47f;
+    --ok-bg:#eff8f1; --ok-bd:#c3e6cd; --ok-fg:#166534;
+    --err-bg:#fdf0f0; --err-bd:#f3c4c4; --err-fg:#991b1b;
+    --info-bg:#fcebd7; --info-bd:#f1cfa6; --info-fg:#7c3d06;
+    --tag-fg:#9a4a06; --tag-fds-bg:#e6eef7; --tag-fds-fg:#1e4e8c; --tag-fer-bg:#fbe9e9; --tag-fer-fg:#991b1b; --tag-ok-bg:#e7f5ec; --tag-ok-fg:#166534;
+    --toast-bg:#2a241c; --toast-fg:#fffdf9;
+    color-scheme: light;
   }
+  /* Tema noturno — paleta "Grafite" (botão 🌙 no topo; fica salvo no navegador) */
+  :root[data-theme="dark"]{
+    --page:#0f1115; --surface:#171a21; --surface-2:#1f232c;
+    --text-primary:#f2f4f7; --text-secondary:#c3c8d1; --text-muted:#8a919e;
+    --border:rgba(255,255,255,.08); --accent:#f7931e; --accent-hover:#ffa53d; --accent-soft:rgba(247,147,30,.14);
+    --bar:#f7931e; --bar-track:#262b35; --warn:#fbbf24; --critical:#f87171; --good:#4ade80;
+    --shadow:none;
+    --on-accent:#1a1206; --input-bg:#1f232c; --drop-border:rgba(247,147,30,.45);
+    --ok-bg:rgba(34,197,94,.08); --ok-bd:rgba(34,197,94,.35); --ok-fg:#bbf7d0;
+    --err-bg:rgba(239,68,68,.08); --err-bd:rgba(239,68,68,.4); --err-fg:#fecaca;
+    --info-bg:rgba(247,147,30,.12); --info-bd:rgba(247,147,30,.4); --info-fg:#fde3bd;
+    --tag-fg:#fbb15e; --tag-fds-bg:rgba(75,147,232,.16); --tag-fds-fg:#93c0f5; --tag-fer-bg:rgba(239,68,68,.15); --tag-fer-fg:#fca5a5; --tag-ok-bg:rgba(34,197,94,.14); --tag-ok-fg:#86efac;
+    --toast-bg:#f2f4f7; --toast-fg:#0f1115;
+    color-scheme: dark;
+  }
+  /* o nome "Rezende" do logo é preto: no tema noturno o logo ganha um fundo claro */
+  :root[data-theme="dark"] .brand .logo{ background:#fffdf9; border-radius:10px; padding:4px 7px; }
+  .theme-btn{ display:inline-flex; align-items:center; gap:6px; }
   *{ box-sizing:border-box; }
   html,body{ margin:0; padding:0; }
-  html{ color-scheme: light; }
   body{
     background: var(--page);
     color:var(--text-primary); min-height:100vh;
@@ -57,12 +84,12 @@
     background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border); border-radius:9px;
     padding:9px 11px; font:inherit; font-size:14.5px; min-width:0;
   }
-  input.in, select.in{ background:#fff; }
+  input.in, select.in{ background:var(--input-bg); }
   input.in:focus, select.in:focus{ outline:2px solid var(--accent); outline-offset:-1px; border-color:transparent; }
   .msg{ border-radius:10px; padding:11px 14px; font-size:13.5px; }
-  .msg.err{ border:1px solid #f3c4c4; background:#fdf0f0; color:#991b1b; }
-  .msg.ok{ border:1px solid #c3e6cd; background:#eff8f1; color:#166534; }
-  .msg.info{ border:1px solid #f1cfa6; background:var(--accent-soft); color:#7c3d06; }
+  .msg.err{ border:1px solid var(--err-bd); background:var(--err-bg); color:var(--err-fg); }
+  .msg.ok{ border:1px solid var(--ok-bd); background:var(--ok-bg); color:var(--ok-fg); }
+  .msg.info{ border:1px solid var(--info-bd); background:var(--info-bg); color:var(--info-fg); }
 
   /* abas */
   .tabs{ display:flex; gap:6px; border-bottom:1px solid var(--border); flex-wrap:wrap; }
@@ -73,7 +100,7 @@
 
   /* importação */
   .drop{
-    border:1.5px dashed #e3b47f; border-radius:14px; background:var(--surface);
+    border:1.5px dashed var(--drop-border); border-radius:14px; background:var(--surface);
     padding:22px 20px; text-align:center; cursor:pointer; transition:background .15s, border-color .15s; display:block;
   }
   .drop:hover, .drop.over{ background:var(--accent-soft); border-color:var(--accent); }
@@ -87,7 +114,7 @@
     display:inline-flex; align-items:center; gap:8px; white-space:nowrap;
   }
   .btn:hover{ border-color:var(--text-muted); }
-  .btn.primary{ background:var(--accent); border-color:var(--accent); color:#fff; }
+  .btn.primary{ background:var(--accent); border-color:var(--accent); color:var(--on-accent); }
   .btn.primary:hover{ background:var(--accent-hover); border-color:var(--accent-hover); }
   .btn.sm{ padding:5px 11px; font-size:13px; border-radius:8px; }
   .btn:disabled{ opacity:.5; cursor:default; }
@@ -123,9 +150,9 @@
   .bar{ height:6px; background:var(--bar-track); border-radius:3px; margin-top:6px; overflow:hidden; }
   .bar > span{ display:block; height:100%; background:var(--bar); border-radius:3px; }
   .tag{ display:inline-block; font-size:12px; font-weight:600; padding:2px 8px; border-radius:999px; background:var(--accent-soft); color:var(--accent); white-space:nowrap; }
-  .tag{ color:#9a4a06 !important; } .tag.fds{ background:#e6eef7; color:#1e4e8c !important; }
-  .tag.fer{ background:#fbe9e9; color:#991b1b !important; }
-  .tag.ok{ background:#e7f5ec; color:#166534 !important; }
+  .tag{ color:var(--tag-fg) !important; } .tag.fds{ background:var(--tag-fds-bg); color:var(--tag-fds-fg) !important; }
+  .tag.fer{ background:var(--tag-fer-bg); color:var(--tag-fer-fg) !important; }
+  .tag.ok{ background:var(--tag-ok-bg); color:var(--tag-ok-fg) !important; }
   .tag.off{ background:var(--surface-2); color:var(--text-muted) !important; }
   td.addr{ max-width:300px; color:var(--text-secondary); font-size:13px; }
   .filtro-tbl{ display:flex; gap:10px; align-items:center; margin-bottom:10px; flex-wrap:wrap; }
@@ -145,7 +172,7 @@
   .form-row{ display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; }
   .form-row label.f{ flex:1; min-width:160px; }
 
-  .toast{ position:fixed; bottom:22px; left:50%; transform:translateX(-50%) translateY(20px); opacity:0; background:#2a241c; color:#fffdf9; padding:10px 18px; border-radius:10px; font-weight:600; transition:all .2s; pointer-events:none; max-width:calc(100% - 32px); text-align:center; z-index:10; }
+  .toast{ position:fixed; bottom:22px; left:50%; transform:translateX(-50%) translateY(20px); opacity:0; background:var(--toast-bg); color:var(--toast-fg); padding:10px 18px; border-radius:10px; font-weight:600; transition:all .2s; pointer-events:none; max-width:calc(100% - 32px); text-align:center; z-index:10; }
   .toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
   .print-only{ display:none; }
   .loading{ color:var(--text-muted); padding:18px 0; }
@@ -160,7 +187,7 @@
   /* ---------- impressão / PDF ---------- */
   @media print{
     @page{ size:A4 landscape; margin:12mm; }
-    :root{ --page:#fff; --surface:#fff; --surface-2:#f2f0ea; --text-primary:#1f1a12; --text-secondary:#3d382c; --text-muted:#6b6658; --border:#ddd8cc; --accent:#b45309; --accent-soft:#fdf0dc; }
+    :root, :root[data-theme="dark"]{ color-scheme:light; --shadow:none; --input-bg:#fff; --surface-2:#f2f0ea; --ok-fg:#166534; --err-fg:#991b1b; --info-fg:#7c3d06; --ok-bg:#fff; --err-bg:#fff; --info-bg:#fff; --bar-track:#efe7db; --tag-fg:#9a4a06; --tag-fds-fg:#1d4ed8; --tag-fer-fg:#b91c1c; --page:#fff; --surface:#fff; --surface-2:#f2f0ea; --text-primary:#1f1a12; --text-secondary:#3d382c; --text-muted:#6b6658; --border:#ddd8cc; --accent:#b45309; --accent-soft:#fdf0dc; }
     body{ background:#fff; font-size:11.5px; }
     .shell{ padding:0; max-width:none; gap:12px; }
     .no-print{ display:none !important; }
@@ -170,7 +197,8 @@
     .kpi .v{ font-size:19px; }
     .kpi.warn .v, .ni{ color:#b45309; }
     .tag{ border:1px solid currentColor; background:none !important; }
-    .tag.fds{ color:#1d4ed8; } .tag.fer{ color:#b91c1c; }
+    .brand .logo{ background:none !important; padding:0 !important; }
+    .actions{ display:none !important; }
     tr{ break-inside:avoid; }
     a{ color:inherit; text-decoration:none; }
     .quebra{ break-before:page; }
@@ -195,6 +223,7 @@
       </form>
     </div>
     <div class="hint" style="text-align:center">Sem acesso? Peça à TI.</div>
+    <div style="text-align:center"><button class="pill theme-btn" type="button" data-tema>🌙 Noturno</button></div>
   </div>
 </div>
 
@@ -230,6 +259,7 @@
     </div>
     <div class="user no-print">
       <span id="userNome"></span>
+      <button class="pill theme-btn" type="button" data-tema title="Alternar tema claro / noturno">🌙 Noturno</button>
       <a class="pill" href="/">Painel</a>
       <button class="pill" type="button" data-sair>Sair</button>
     </div>
