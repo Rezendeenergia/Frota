@@ -113,6 +113,12 @@ app.get('/api/painel', async (req, res) => {
 
 app.use(express.static(PUBLIC_DIR));
 
+// Relatório de uso de veículos fora do horário (planilha do rastreador).
+// Todo o processamento é no navegador — o servidor só entrega a página.
+app.get('/fora-horario', (req, res) => {
+  res.sendFile(path.join(PUBLIC_DIR, 'fora-horario.html'));
+});
+
 app.get(/^(?!\/api\/).*/, (req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
 });

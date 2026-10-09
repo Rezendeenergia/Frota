@@ -49,6 +49,8 @@
   .clockbox{ text-align:right; }
   .clockbox .clock{ font-size:32px; font-weight:700; font-variant-numeric:tabular-nums; line-height:1; }
   .clockbox .date{ font-size:15px; color:var(--text-muted); margin-top:4px; text-transform:capitalize; }
+  .clockbox .side-link{ display:inline-block; margin-top:6px; font-size:13px; color:var(--text-muted); text-decoration:none; }
+  .clockbox .side-link:hover{ color:var(--accent); }
 
   /* status strip */
   .status-strip{
@@ -135,6 +137,7 @@
       <div class="clockbox">
         <div class="clock" id="clock">--:--</div>
         <div class="date" id="dateLabel">—</div>
+        <a class="side-link" href="/fora-horario">Relatório fora de horário →</a>
       </div>
     </header>
 
