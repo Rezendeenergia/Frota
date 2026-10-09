@@ -113,7 +113,7 @@ const textoPeriodo = (r) => (r.periodo ? `${fmtDataHora(r.periodo.de)} a ${fmtDa
 
 function classeTag(motivo) {
   if (motivo.startsWith('Feriado')) return 'tag fer';
-  if (motivo === 'Sábado' || motivo === 'Domingo') return 'tag fds';
+  if (motivo.startsWith('Sábado') || motivo === 'Domingo') return 'tag fds';
   return 'tag';
 }
 
@@ -239,7 +239,7 @@ const durExcel = (seg) => (seg ?? 0) / 86400;
 function montarExcel(r) {
   const t = r.totais;
   const reg = r.regras || REGRAS_PADRAO;
-  const criterio = `Expediente de segunda a sexta, das ${pad2(reg.inicioExpediente)}h às ${pad2(reg.fimExpediente)}h. Sábados, domingos e feriados contam o dia inteiro como fora do horário. Viagem que encosta no período fora do expediente conta inteira. Viagens abaixo de ${String(reg.kmMinimo).replace('.', ',')} km desconsideradas.`;
+  const criterio = `Expediente de segunda a sexta, das ${pad2(reg.inicioExpediente)}h às ${pad2(reg.fimExpediente)}h, e sábado das ${pad2(reg.inicioExpediente)}h às ${pad2(reg.fimSabado)}h. Domingos e feriados contam o dia inteiro como fora do horário. Viagem que encosta no período fora do expediente conta inteira. Viagens abaixo de ${String(reg.kmMinimo).replace('.', ',')} km desconsideradas.`;
   const feriados = r.feriadosNoPeriodo.length
     ? r.feriadosNoPeriodo.map((f) => `${f.data.split('-').reverse().join('/')} (${f.nome})`).join('; ')
     : 'Nenhum';
@@ -361,7 +361,7 @@ function textoEmail(r) {
   linhas.push('');
   linhas.push('Prezado,');
   linhas.push('');
-  linhas.push(`Segue o levantamento de uso da frota fora do horário de expediente (seg. a sex., 08h às 19h; sábados, domingos e feriados contam o dia todo), no período de ${textoPeriodo(r)}, com base no rastreamento veicular.`);
+  linhas.push(`Segue o levantamento de uso da frota fora do horário de expediente (seg. a sex., 08h às 19h; sábado, 08h às 12h; domingos e feriados contam o dia todo), no período de ${textoPeriodo(r)}, com base no rastreamento veicular.`);
   linhas.push('');
   if (!t.viagensFora) {
     linhas.push('Não foram identificadas viagens fora do horário no período.');
