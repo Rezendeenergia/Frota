@@ -43,6 +43,10 @@
   /* o nome "Rezende" do logo é preto: no tema noturno o logo ganha um fundo claro */
   :root[data-theme="dark"] .brand .logo{ background:#fffdf9; border-radius:10px; padding:4px 7px; }
   .theme-btn{ display:inline-flex; align-items:center; gap:6px; }
+  .pw{ position:relative; display:flex; }
+  .pw input{ flex:1; padding-right:84px; }
+  .pw-ver{ position:absolute; right:6px; top:50%; transform:translateY(-50%); background:none; border:0; color:var(--text-muted); font:inherit; font-size:12.5px; font-weight:600; cursor:pointer; padding:4px 8px; border-radius:6px; }
+  .pw-ver:hover{ color:var(--accent); }
   *{ box-sizing:border-box; }
   html,body{ margin:0; padding:0; }
   body{
@@ -217,12 +221,14 @@
     <div class="card">
       <form id="formLogin" autocomplete="on">
         <label class="f">E-mail<input class="in" type="email" id="loginEmail" autocomplete="username" required></label>
-        <label class="f">Senha<input class="in" type="password" id="loginSenha" autocomplete="current-password" required></label>
+        <label class="f">Senha
+          <span class="pw"><input class="in" type="password" id="loginSenha" autocomplete="current-password" required><button class="pw-ver" type="button" data-ver-senha="loginSenha" title="Mostrar senha">Mostrar</button></span>
+        </label>
         <div class="msg err" id="loginErro" hidden></div>
         <button class="btn primary" type="submit" id="loginBtn" style="justify-content:center">Entrar</button>
       </form>
     </div>
-    <div class="hint" style="text-align:center">Sem acesso? Peça à TI.</div>
+    <div class="hint" style="text-align:center">Esqueceu a senha ou não tem acesso? Peça a um administrador uma nova senha temporária.</div>
     <div style="text-align:center"><button class="pill theme-btn" type="button" data-tema>🌙 Noturno</button></div>
   </div>
 </div>
@@ -236,6 +242,8 @@
     </div>
     <div class="card">
       <form id="formSenha">
+        <!-- e-mail oculto: faz o navegador salvar a nova senha no usuário certo -->
+        <input type="email" id="senhaUsuario" autocomplete="username" readonly hidden>
         <label class="f">Senha atual (temporária)<input class="in" type="password" id="senhaAtual" autocomplete="current-password" required></label>
         <label class="f">Nova senha (mín. 8 caracteres)<input class="in" type="password" id="senhaNova" autocomplete="new-password" minlength="8" required></label>
         <label class="f">Repita a nova senha<input class="in" type="password" id="senhaNova2" autocomplete="new-password" minlength="8" required></label>

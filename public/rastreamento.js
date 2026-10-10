@@ -64,7 +64,7 @@ async function api(caminho, { method = 'GET', body } = {}) {
   let data = null;
   try { data = await res.json(); } catch { /* resposta vazia */ }
   if (res.status === 401) { mostrarLogin(data?.erro); throw new ErroApi(data?.erro || 'Sessão expirada.'); }
-  if (res.status === 403 && data?.trocarSenha) { mostrarTela('telaSenha'); throw new ErroApi(data.erro); }
+  if (res.status === 403 && data?.trocarSenha) { $('senhaUsuario').value = usuario?.email || ''; mostrarTela('telaSenha'); throw new ErroApi(data.erro); }
   if (!res.ok) throw new ErroApi(data?.erro || `Erro ${res.status}`);
   return data;
 }
@@ -81,6 +81,15 @@ document.querySelectorAll('[data-tema]').forEach((b) => b.addEventListener('clic
 }));
 aplicarTema(document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light');
 
+// mostrar / ocultar senha digitada
+document.querySelectorAll('[data-ver-senha]').forEach((b) => b.addEventListener('click', () => {
+  const inp = $(b.dataset.verSenha);
+  const mostrar = inp.type === 'password';
+  inp.type = mostrar ? 'text' : 'password';
+  b.textContent = mostrar ? 'Ocultar' : 'Mostrar';
+  inp.focus();
+}));
+
 // ======================= telas / login =======================
 let usuario = null;
 function mostrarTela(id) {
@@ -89,6 +98,8 @@ function mostrarTela(id) {
 function mostrarLogin(msg) {
   usuario = null;
   mostrarTela('telaLogin');
+  $('loginSenha').type = 'password';
+  document.querySelectorAll('[data-ver-senha]').forEach((b) => { b.textContent = 'Mostrar'; });
   const e = $('loginErro');
   if (msg && msg !== 'Sessão expirada. Entre novamente.') { e.textContent = msg; e.hidden = false; } else e.hidden = true;
   setTimeout(() => $('loginEmail').focus(), 50);
@@ -134,7 +145,7 @@ document.querySelectorAll('[data-sair]').forEach((b) => b.addEventListener('clic
 let appIniciado = false;
 function entrou(u) {
   usuario = u;
-  if (u.trocarSenha) { mostrarTela('telaSenha'); setTimeout(() => $('senhaAtual').focus(), 50); return; }
+  if (u.trocarSenha) { $('senhaUsuario').value = u.email || ''; mostrarTela('telaSenha'); setTimeout(() => $('senhaAtual').focus(), 50); return; }
   mostrarTela('telaApp');
   $('userNome').innerHTML = `<b>${escH(u.nome || u.email)}</b>`;
   $('tabUsuarios').hidden = u.papel !== 'admin';
@@ -860,11 +871,11 @@ function renderUsuarios(lista) {
   pane.innerHTML = `
     <section class="card">
       <h2 class="sec">Novo acesso</h2>
-      <form class="form-row" id="formUsuario">
+      <form class="form-row" id="formUsuario" autocomplete="off">
         <label class="f">Nome<input class="in" id="uNome" required placeholder="Ex.: Gestão de Frota"></label>
-        <label class="f">E-mail<input class="in" id="uEmail" type="email" required></label>
+        <label class="f">E-mail<input class="in" id="uEmail" type="email" autocomplete="off" required></label>
         <label class="f" style="flex:0 0 150px">Perfil<select class="in" id="uPapel"><option value="usuario">Usuário</option><option value="admin">Administrador</option></select></label>
-        <label class="f">Senha temporária<input class="in" id="uSenha" required minlength="8"></label>
+        <label class="f">Senha temporária<input class="in" id="uSenha" autocomplete="off" data-lpignore="true" data-1p-ignore spellcheck="false" required minlength="8"></label>
         <button class="btn primary" type="submit">Criar acesso</button>
       </form>
       <div class="hint" style="margin-top:8px">Passe a senha temporária para a pessoa por um canal seguro; no primeiro acesso ela é obrigada a trocar. Usuário vê e importa; administrador também gerencia acessos.</div>
