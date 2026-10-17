@@ -138,6 +138,14 @@ export function lerOciosidade(linhas) {
     }
   }
   trechos.forEach((t) => { delete t.numero; });
+  // mesma linha repetida no arquivo: fica uma (a que tem motorista, se houver)
+  const unicos = new Map();
+  for (const t of trechos) {
+    const k = `${t.veiculo}|${+t.inicio}|${+t.fim}`;
+    const atual = unicos.get(k);
+    if (!atual || (!atual.motorista && t.motorista)) unicos.set(k, t);
+  }
+  trechos = [...unicos.values()];
   return { trechos, totalLinhas: brutas.length };
 }
 
