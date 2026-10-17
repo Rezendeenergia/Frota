@@ -154,9 +154,37 @@ const texto = (v) => {
 // O relatório do rastreador vem em árvore: "2" (mês) > "2.1" (dia) >
 // "2.1.6" (veículo no dia) > "2.1.6.1" (viagem). Os níveis de cima são
 // SOMAS dos de baixo — usar só as folhas, senão o km sai dobrado.
+// Sem a coluna "№" (planilha copiada/colada, coluna apagada): o total do
+// veículo no dia "abraça" as viagens dele (começa antes/junto e termina
+// depois/junto). Viagem de verdade nunca contém outra do mesmo veículo,
+// então qualquer linha que contenha outra é total e sai.
+function semTotaisSemNumero(registros) {
+  const porVeiculo = new Map();
+  for (const r of registros) {
+    if (!porVeiculo.has(r.veiculo)) porVeiculo.set(r.veiculo, []);
+    porVeiculo.get(r.veiculo).push(r);
+  }
+  const mesmo = (a, b) => +a.inicio === +b.inicio && +a.fim === +b.fim;
+  return registros.filter((r) => !porVeiculo.get(r.veiculo).some((o) =>
+    o !== r && !mesmo(o, r) && r.inicio <= o.inicio && r.fim >= o.fim));
+}
+
+// Mesma viagem repetida no arquivo (ex.: veículo com uma viagem só aparece no
+// nível "veículo" e no nível "viagem" com os mesmos dados): fica uma, de
+// preferência a que tem motorista.
+function semRepetidas(registros) {
+  const m = new Map();
+  for (const r of registros) {
+    const k = `${r.veiculo}|${+r.inicio}|${+r.fim}`;
+    const atual = m.get(k);
+    if (!atual || (!atual.motorista && r.motorista)) m.set(k, r);
+  }
+  return [...m.values()];
+}
+
 function filtrarFolhas(registros) {
   const comNumero = registros.filter((r) => r.numero);
-  if (!comNumero.length) return registros;
+  if (!comNumero.length) return semTotaisSemNumero(registros);
   const numeros = comNumero.map((r) => r.numero);
   const temFilho = new Set();
   for (const n of numeros) {
@@ -198,7 +226,7 @@ export function lerViagens(linhas) {
     });
   }
   // Linhas de agrupamento sem número (ex.: "Dia 8", "Outubro") nunca são viagem.
-  const folhas = filtrarFolhas(registros).filter((r) => !/^(dia \d+|janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)$/.test(norm(r.veiculo)));
+  const folhas = semRepetidas(filtrarFolhas(registros)).filter((r) => !/^(dia \d+|janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)$/.test(norm(r.veiculo)));
   return { viagens: folhas, totalLinhas: registros.length };
 }
 
