@@ -1,5 +1,10 @@
-// API do histórico de rastreamento (/rastreamento): login próprio, importação
-// das planilhas do rastreador, consulta por período, evidências e usuários.
+// API do histórico de rastreamento (/rastreamento): login pela conta Microsoft
+// corporativa, importação das planilhas do rastreador, consulta por período,
+// evidências e usuários.
+//
+// ACESSO: só pela conta Microsoft @rezendeenergia.com.br. A lista de quem pode
+// entrar continua sendo a tabela rast_usuarios (administrador libera o e-mail na
+// aba Usuários). Não existe mais senha neste sistema.
 //
 // Todo acesso ao Supabase (projeto Abast) é feito AQUI, com a chave de serviço
 // guardada no Render. O navegador nunca recebe chave do Supabase — as tabelas
@@ -9,19 +14,26 @@
 //   RAST_SUPABASE_URL          (padrão: projeto Abast)
 //   RAST_SUPABASE_SERVICE_KEY  chave service_role / sb_secret_… do projeto Abast  [obrigatória]
 //   RAST_SESSION_SECRET        texto aleatório longo para assinar a sessão        [obrigatória]
-//   RAST_ADMIN_EMAIL           e-mail do 1º administrador (padrão ti@rezendeenergia.com.br)
-//   RAST_ADMIN_SENHA_INICIAL   senha do 1º acesso desse administrador (trocada no 1º login)
+//   RAST_ADMIN_EMAIL           e-mail do 1º administrador (padrão ti@rezendeenergia.com.br);
+//                              se a tabela não tiver esse e-mail, ele entra como admin no 1º login
+//   SHAREPOINT_CLIENT_ID / SHAREPOINT_CLIENT_SECRET / SHAREPOINT_TENANT_ID
+//                              mesmo App Registration do Azure já usado pelo painel (e pelo CromFolgas);
+//                              AZURE_CLIENT_ID / AZURE_CLIENT_SECRET / AZURE_TENANT_ID têm preferência se existirem
+//   RAST_REDIRECT_URI          (opcional) endereço de retorno; padrão https://<host>/api/rast/auth/callback.
+//                              Precisa estar cadastrado no App Registration (Authentication → Redirect URIs).
 
 import express from 'express';
 import crypto from 'node:crypto';
+import { ConfidentialClientApplication } from '@azure/msal-node';
 
 const SB_URL = (process.env.RAST_SUPABASE_URL || 'https://horvznvaytzhwrmwjwxv.supabase.co').replace(/\/$/, '');
 const SB_KEY = process.env.RAST_SUPABASE_SERVICE_KEY || '';
 const SESSION_SECRET = process.env.RAST_SESSION_SECRET || '';
 const ADMIN_EMAIL = (process.env.RAST_ADMIN_EMAIL || 'ti@rezendeenergia.com.br').trim().toLowerCase();
-const ADMIN_SENHA_INICIAL = process.env.RAST_ADMIN_SENHA_INICIAL || '';
+const DOMINIO = 'rezendeenergia.com.br';
 const BUCKET = 'rast-evidencias';
 const COOKIE = 'rast_sess';
+const COOKIE_LOGIN = 'rast_login'; // guarda o "state" durante a ida e volta da Microsoft
 const SESSAO_HORAS = 12;
 
 export const configurado = () => Boolean(SB_KEY && SESSION_SECRET);
@@ -72,21 +84,7 @@ async function sbTodos(pathBase) {
   return todos;
 }
 
-// ---------------- senha e sessão ----------------
-function hashSenha(senha) {
-  const salt = crypto.randomBytes(16);
-  const hash = crypto.scryptSync(senha, salt, 64);
-  return `scrypt$${salt.toString('base64')}$${hash.toString('base64')}`;
-}
-function conferirSenha(senha, armazenado) {
-  if (!armazenado || !armazenado.startsWith('scrypt$')) return false;
-  const [, saltB64, hashB64] = armazenado.split('$');
-  const esperado = Buffer.from(hashB64, 'base64');
-  const calc = crypto.scryptSync(senha, Buffer.from(saltB64, 'base64'), esperado.length);
-  return crypto.timingSafeEqual(esperado, calc);
-}
-const senhaValida = (s) => typeof s === 'string' && s.length >= 8 && s.length <= 200;
-
+// ---------------- sessão ----------------
 const b64u = (buf) => Buffer.from(buf).toString('base64url');
 function assinar(payload) {
   const corpo = b64u(JSON.stringify(payload));
@@ -111,20 +109,30 @@ function lerCookie(req, nome) {
 }
 function gravarCookie(req, res, valor, maxAgeSeg) {
   const seguro = req.secure || req.headers['x-forwarded-proto'] === 'https';
-  res.setHeader('Set-Cookie', `${COOKIE}=${encodeURIComponent(valor)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeg}${seguro ? '; Secure' : ''}`);
+  res.append('Set-Cookie', `${COOKIE}=${encodeURIComponent(valor)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeg}${seguro ? '; Secure' : ''}`);
 }
 
-// ---------------- limite de tentativas de login ----------------
-const tentativas = new Map(); // chave -> { falhas, ate }
-function bloqueado(chave) {
-  const t = tentativas.get(chave);
-  return t && t.ate > Date.now();
+// ---------------- login Microsoft ----------------
+const env = (...nomes) => nomes.map((n) => process.env[n]).find(Boolean) || '';
+let _msal = null;
+function msal() {
+  if (_msal) return _msal;
+  const clientId = env('AZURE_CLIENT_ID', 'SHAREPOINT_CLIENT_ID');
+  const clientSecret = env('AZURE_CLIENT_SECRET', 'SHAREPOINT_CLIENT_SECRET');
+  const tenant = env('AZURE_TENANT_ID', 'SHAREPOINT_TENANT_ID');
+  if (!clientId || !clientSecret || !tenant) throw new Error('Login Microsoft sem configuração (SHAREPOINT_CLIENT_ID/SECRET/TENANT_ID).');
+  _msal = new ConfidentialClientApplication({ auth: { clientId, clientSecret, authority: `https://login.microsoftonline.com/${tenant}` } });
+  return _msal;
 }
-function registrarFalha(chave) {
-  const t = tentativas.get(chave) || { falhas: 0, ate: 0 };
-  t.falhas += 1;
-  if (t.falhas >= 8) { t.ate = Date.now() + 15 * 60 * 1000; t.falhas = 0; }
-  tentativas.set(chave, t);
+const ESCOPOS = ['openid', 'profile', 'email'];
+function enderecoRetorno(req) {
+  if (process.env.RAST_REDIRECT_URI) return process.env.RAST_REDIRECT_URI;
+  const proto = req.headers['x-forwarded-proto'] || req.protocol;
+  return `${proto}://${req.get('host')}/api/rast/auth/callback`;
+}
+function gravarCookieLogin(req, res, valor, maxAgeSeg) {
+  const seguro = req.secure || req.headers['x-forwarded-proto'] === 'https';
+  res.append('Set-Cookie', `${COOKIE_LOGIN}=${encodeURIComponent(valor)}; Path=/api/rast; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeg}${seguro ? '; Secure' : ''}`);
 }
 
 // ---------------- usuários ----------------
@@ -132,7 +140,7 @@ async function buscarUsuario(email) {
   const r = await sb(`/rest/v1/rast_usuarios?email=eq.${q(email)}&select=*`);
   return r[0] || null;
 }
-const publico = (u) => ({ email: u.email, nome: u.nome, papel: u.papel, trocarSenha: u.trocar_senha });
+const publico = (u) => ({ email: u.email, nome: u.nome, papel: u.papel });
 
 // ---------------- validação dos registros importados ----------------
 const RE_TS = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
@@ -186,10 +194,6 @@ export function criarRouter() {
       const u = await buscarUsuario(s.e);
       if (!u || !u.ativo) return res.status(401).json({ erro: 'Acesso desativado.' });
       req.usuario = u;
-      // enquanto não trocar a senha temporária, só pode trocar a senha / sair
-      if (u.trocar_senha && !['/senha', '/eu', '/logout'].includes(req.path)) {
-        return res.status(403).json({ erro: 'Troque a senha temporária para continuar.', trocarSenha: true });
-      }
       next();
     } catch (err) {
       console.error('[rastreamento] sessão:', err?.message || err);
@@ -198,40 +202,57 @@ export function criarRouter() {
   }
   const exigirAdmin = (req, res, next) => (req.usuario?.papel === 'admin' ? next() : res.status(403).json({ erro: 'Apenas administradores.' }));
 
-  r.post('/login', h(async (req, res) => {
-    const email = String(req.body?.email || '').trim().toLowerCase();
-    const senha = String(req.body?.senha || '');
-    const chave = `${req.ip}|${email}`;
-    if (bloqueado(chave)) return res.status(429).json({ erro: 'Muitas tentativas. Aguarde 15 minutos.' });
+  // Login por e-mail e senha foi desligado: o acesso é só pela conta Microsoft.
+  const SO_MICROSOFT = { erro: `O acesso é feito somente com a conta Microsoft corporativa (@${DOMINIO}).` };
+  r.post('/login', (req, res) => res.status(410).json(SO_MICROSOFT));
+  r.post('/senha', (req, res) => res.status(410).json(SO_MICROSOFT));
 
-    let u = email ? await buscarUsuario(email) : null;
-
-    // 1º acesso do administrador (senha inicial definida no Render)
-    if (!u && email === ADMIN_EMAIL && ADMIN_SENHA_INICIAL && senha === ADMIN_SENHA_INICIAL) {
-      const novo = { email, nome: 'TI', papel: 'admin', senha_hash: hashSenha(senha), trocar_senha: true, ativo: true, criado_por: 'bootstrap' };
-      [u] = await sb('/rest/v1/rast_usuarios', { method: 'POST', body: novo, headers: { Prefer: 'return=representation' } });
-    } else if (!u || !u.ativo || !conferirSenha(senha, u.senha_hash)) {
-      registrarFalha(chave);
-      return res.status(401).json({ erro: 'E-mail ou senha inválidos.' });
-    }
-    tentativas.delete(chave);
-    await sb(`/rest/v1/rast_usuarios?email=eq.${q(u.email)}`, { method: 'PATCH', body: { ultimo_acesso: new Date().toISOString() } });
-    gravarCookie(req, res, assinar({ e: u.email, exp: Date.now() + SESSAO_HORAS * 3600 * 1000 }), SESSAO_HORAS * 3600);
-    res.json(publico(u));
+  // Ida para a Microsoft
+  r.get('/microsoft', h(async (req, res) => {
+    const state = crypto.randomBytes(16).toString('hex');
+    gravarCookieLogin(req, res, assinar({ state, exp: Date.now() + 10 * 60 * 1000 }), 600);
+    res.redirect(await msal().getAuthCodeUrl({ scopes: ESCOPOS, redirectUri: enderecoRetorno(req), state, prompt: 'select_account' }));
   }));
+
+  // Volta da Microsoft
+  r.get('/auth/callback', async (req, res) => {
+    const volta = (erro) => res.redirect(erro ? `/rastreamento?erro=${erro}` : '/rastreamento');
+    const pendente = verificar(lerCookie(req, COOKIE_LOGIN));
+    gravarCookieLogin(req, res, '', 0);
+    if (req.query.error) return volta('microsoft_negado');
+    if (!pendente?.state || !req.query.code || req.query.state !== pendente.state) return volta('sessao_expirada');
+    try {
+      const r2 = await msal().acquireTokenByCode({ code: String(req.query.code), scopes: ESCOPOS, redirectUri: enderecoRetorno(req) });
+      const c = r2?.idTokenClaims || {};
+      const email = String(c.preferred_username || c.email || c.upn || '').trim().toLowerCase();
+      if (!email.endsWith(`@${DOMINIO}`)) return volta('dominio');
+
+      let u = await buscarUsuario(email);
+      // 1º acesso do administrador principal (tabela ainda sem ele)
+      if (!u && email === ADMIN_EMAIL) {
+        [u] = await sb('/rest/v1/rast_usuarios', {
+          method: 'POST', headers: { Prefer: 'return=representation' },
+          body: { email, nome: c.name || 'TI', papel: 'admin', senha_hash: null, trocar_senha: false, ativo: true, criado_por: 'bootstrap' },
+        });
+      }
+      if (!u) return volta('sem_acesso');
+      if (!u.ativo) return volta('desativado');
+
+      const mud = { ultimo_acesso: new Date().toISOString() };
+      if (!u.nome && c.name) mud.nome = c.name;
+      await sb(`/rest/v1/rast_usuarios?email=eq.${q(u.email)}`, { method: 'PATCH', body: mud });
+      gravarCookie(req, res, assinar({ e: u.email, exp: Date.now() + SESSAO_HORAS * 3600 * 1000 }), SESSAO_HORAS * 3600);
+      console.log(`[rastreamento] entrou: ${u.email}`);
+      volta();
+    } catch (err) {
+      console.error('[rastreamento] login Microsoft:', err?.message || err);
+      volta('microsoft_callback');
+    }
+  });
 
   r.post('/logout', (req, res) => { gravarCookie(req, res, '', 0); res.json({ ok: true }); });
 
   r.get('/eu', exigirLogin, (req, res) => res.json(publico(req.usuario)));
-
-  r.post('/senha', exigirLogin, h(async (req, res) => {
-    const { atual, nova } = req.body || {};
-    if (!conferirSenha(String(atual || ''), req.usuario.senha_hash)) return res.status(400).json({ erro: 'Senha atual incorreta.' });
-    if (!senhaValida(nova)) return res.status(400).json({ erro: 'A nova senha precisa ter pelo menos 8 caracteres.' });
-    if (nova === atual) return res.status(400).json({ erro: 'A nova senha precisa ser diferente da atual.' });
-    await sb(`/rest/v1/rast_usuarios?email=eq.${q(req.usuario.email)}`, { method: 'PATCH', body: { senha_hash: hashSenha(nova), trocar_senha: false } });
-    res.json({ ok: true });
-  }));
 
   // ---- importação ----
   r.post('/importar', exigirLogin, h(async (req, res) => {
@@ -351,17 +372,16 @@ export function criarRouter() {
 
   // ---- usuários (admin) ----
   r.get('/usuarios', exigirLogin, exigirAdmin, h(async (req, res) => {
-    res.json(await sb('/rest/v1/rast_usuarios?select=email,nome,papel,ativo,trocar_senha,criado_em,criado_por,ultimo_acesso&order=nome.asc'));
+    res.json(await sb('/rest/v1/rast_usuarios?select=email,nome,papel,ativo,criado_em,criado_por,ultimo_acesso&order=nome.asc'));
   }));
   r.post('/usuarios', exigirLogin, exigirAdmin, h(async (req, res) => {
     const email = String(req.body?.email || '').trim().toLowerCase();
     const nome = txt(req.body?.nome, 120).trim();
     const papel = req.body?.papel === 'admin' ? 'admin' : 'usuario';
-    const senha = String(req.body?.senha || '');
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ erro: 'E-mail inválido.' });
-    if (!senhaValida(senha)) return res.status(400).json({ erro: 'Senha temporária precisa ter pelo menos 8 caracteres.' });
+    if (!email.endsWith(`@${DOMINIO}`)) return res.status(400).json({ erro: `Use o e-mail corporativo (@${DOMINIO}). O acesso é pela conta Microsoft.` });
     if (await buscarUsuario(email)) return res.status(400).json({ erro: 'Esse e-mail já tem acesso.' });
-    await sb('/rest/v1/rast_usuarios', { method: 'POST', body: { email, nome, papel, senha_hash: hashSenha(senha), trocar_senha: true, ativo: true, criado_por: req.usuario.email } });
+    await sb('/rest/v1/rast_usuarios', { method: 'POST', body: { email, nome, papel, senha_hash: null, trocar_senha: false, ativo: true, criado_por: req.usuario.email } });
     res.json({ ok: true });
   }));
   r.patch('/usuarios/:email', exigirLogin, exigirAdmin, h(async (req, res) => {
@@ -374,11 +394,6 @@ export function criarRouter() {
       mud.ativo = req.body.ativo;
     }
     if (req.body?.papel && email !== req.usuario.email) mud.papel = req.body.papel === 'admin' ? 'admin' : 'usuario';
-    if (req.body?.novaSenha !== undefined) {
-      if (!senhaValida(req.body.novaSenha)) return res.status(400).json({ erro: 'Senha temporária precisa ter pelo menos 8 caracteres.' });
-      mud.senha_hash = hashSenha(req.body.novaSenha);
-      mud.trocar_senha = true;
-    }
     if (!Object.keys(mud).length) return res.status(400).json({ erro: 'Nada para alterar.' });
     await sb(`/rest/v1/rast_usuarios?email=eq.${q(email)}`, { method: 'PATCH', body: mud });
     res.json({ ok: true });

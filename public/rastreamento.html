@@ -207,6 +207,13 @@
     a{ color:inherit; text-decoration:none; }
     .quebra{ break-before:page; }
   }
+
+  .btn-ms { display:flex; align-items:center; gap:14px; width:100%; padding:14px 16px; border-radius:12px; background:#fff; color:#111827; text-decoration:none; font-weight:600; font-size:15px; border:1px solid rgba(15,24,41,.17); box-shadow:0 10px 30px -12px rgba(247,147,30,.45); }
+  .btn-ms:hover { background:#F3F4F6; }
+  .btn-ms[aria-busy="true"] { opacity:.7; pointer-events:none; }
+  .btn-ms .ms { width:20px; height:20px; display:grid; grid-template-columns:1fr 1fr; gap:2px; flex:none; }
+  .btn-ms .ms i { display:block; }
+  .btn-ms .seta { margin-left:auto; color:#B45309; }
 </style>
 </head>
 <body>
@@ -219,39 +226,15 @@
       <div><h1>Rastreamento da frota</h1><div class="sub">Acesso restrito · Rezende Energia</div></div>
     </div>
     <div class="card">
-      <form id="formLogin" autocomplete="on">
-        <label class="f">E-mail<input class="in" type="email" id="loginEmail" autocomplete="username" required></label>
-        <label class="f">Senha
-          <span class="pw"><input class="in" type="password" id="loginSenha" autocomplete="current-password" required><button class="pw-ver" type="button" data-ver-senha="loginSenha" title="Mostrar senha">Mostrar</button></span>
-        </label>
-        <div class="msg err" id="loginErro" hidden></div>
-        <button class="btn primary" type="submit" id="loginBtn" style="justify-content:center">Entrar</button>
-      </form>
+      <div class="msg err" id="loginErro" hidden></div>
+      <a class="btn-ms" id="loginBtn" href="/api/rast/microsoft">
+        <span class="ms" aria-hidden="true"><i style="background:#F25022"></i><i style="background:#7FBA00"></i><i style="background:#00A4EF"></i><i style="background:#FFB900"></i></span>
+        <span>Entrar com a conta Rezende</span>
+        <span class="seta" aria-hidden="true">→</span>
+      </a>
     </div>
-    <div class="hint" style="text-align:center">Esqueceu a senha ou não tem acesso? Peça a um administrador uma nova senha temporária.</div>
+    <div class="hint" style="text-align:center">Somente contas <b>@rezendeenergia.com.br</b> liberadas por um administrador do rastreamento.</div>
     <div style="text-align:center"><button class="pill theme-btn" type="button" data-tema>🌙 Noturno</button></div>
-  </div>
-</div>
-
-<!-- TROCA DE SENHA -->
-<div class="login-wrap" id="telaSenha" hidden>
-  <div class="login">
-    <div class="brand">
-      <img class="logo" src="/logo-rezende.png" alt="Rezende Energia">
-      <div><h1>Defina sua senha</h1><div class="sub">A senha atual é temporária</div></div>
-    </div>
-    <div class="card">
-      <form id="formSenha">
-        <!-- e-mail oculto: faz o navegador salvar a nova senha no usuário certo -->
-        <input type="email" id="senhaUsuario" autocomplete="username" readonly hidden>
-        <label class="f">Senha atual (temporária)<input class="in" type="password" id="senhaAtual" autocomplete="current-password" required></label>
-        <label class="f">Nova senha (mín. 8 caracteres)<input class="in" type="password" id="senhaNova" autocomplete="new-password" minlength="8" required></label>
-        <label class="f">Repita a nova senha<input class="in" type="password" id="senhaNova2" autocomplete="new-password" minlength="8" required></label>
-        <div class="msg err" id="senhaErro" hidden></div>
-        <button class="btn primary" type="submit" style="justify-content:center">Salvar e entrar</button>
-      </form>
-    </div>
-    <div style="text-align:center"><button class="pill" type="button" data-sair>Sair</button></div>
   </div>
 </div>
 
