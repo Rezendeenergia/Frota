@@ -64,7 +64,6 @@ async function api(caminho, { method = 'GET', body } = {}) {
   let data = null;
   try { data = await res.json(); } catch { /* resposta vazia */ }
   if (res.status === 401) { mostrarLogin(data?.erro); throw new ErroApi(data?.erro || 'Sessão expirada.'); }
-  if (res.status === 403 && data?.trocarSenha) { $('senhaUsuario').value = usuario?.email || ''; mostrarTela('telaSenha'); throw new ErroApi(data.erro); }
   if (!res.ok) throw new ErroApi(data?.erro || `Erro ${res.status}`);
   return data;
 }
@@ -81,60 +80,28 @@ document.querySelectorAll('[data-tema]').forEach((b) => b.addEventListener('clic
 }));
 aplicarTema(document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light');
 
-// mostrar / ocultar senha digitada
-document.querySelectorAll('[data-ver-senha]').forEach((b) => b.addEventListener('click', () => {
-  const inp = $(b.dataset.verSenha);
-  const mostrar = inp.type === 'password';
-  inp.type = mostrar ? 'text' : 'password';
-  b.textContent = mostrar ? 'Ocultar' : 'Mostrar';
-  inp.focus();
-}));
-
 // ======================= telas / login =======================
 let usuario = null;
 function mostrarTela(id) {
-  for (const t of ['telaLogin', 'telaSenha', 'telaApp']) $(t).hidden = t !== id;
+  for (const t of ['telaLogin', 'telaApp']) $(t).hidden = t !== id;
 }
+// Mensagens que voltam da Microsoft em /rastreamento?erro=...
+const ERROS_LOGIN = {
+  microsoft_negado: 'O login foi cancelado na Microsoft. Tente de novo.',
+  microsoft_callback: 'Não foi possível concluir o login. Tente de novo em instantes.',
+  sessao_expirada: 'O login demorou demais. Tente de novo.',
+  dominio: 'Use a sua conta corporativa @rezendeenergia.com.br.',
+  sem_acesso: 'Seu e-mail ainda não tem acesso ao rastreamento. Peça a um administrador para liberar.',
+  desativado: 'Seu acesso ao rastreamento está desativado. Fale com um administrador.',
+};
 function mostrarLogin(msg) {
   usuario = null;
   mostrarTela('telaLogin');
-  $('loginSenha').type = 'password';
-  document.querySelectorAll('[data-ver-senha]').forEach((b) => { b.textContent = 'Mostrar'; });
+  $('loginBtn').removeAttribute('aria-busy');
   const e = $('loginErro');
   if (msg && msg !== 'Sessão expirada. Entre novamente.') { e.textContent = msg; e.hidden = false; } else e.hidden = true;
-  setTimeout(() => $('loginEmail').focus(), 50);
 }
-
-$('formLogin').addEventListener('submit', async (ev) => {
-  ev.preventDefault();
-  const btn = $('loginBtn');
-  btn.disabled = true; $('loginErro').hidden = true;
-  try {
-    const res = await fetch('/api/rast/login', {
-      method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: $('loginEmail').value, senha: $('loginSenha').value }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.erro || 'Não foi possível entrar.');
-    $('loginSenha').value = '';
-    entrou(data);
-  } catch (err) {
-    $('loginErro').textContent = err.message; $('loginErro').hidden = false;
-  } finally { btn.disabled = false; }
-});
-
-$('formSenha').addEventListener('submit', async (ev) => {
-  ev.preventDefault();
-  const erro = $('senhaErro');
-  erro.hidden = true;
-  if ($('senhaNova').value !== $('senhaNova2').value) { erro.textContent = 'As duas senhas novas não são iguais.'; erro.hidden = false; return; }
-  try {
-    await api('/senha', { method: 'POST', body: { atual: $('senhaAtual').value, nova: $('senhaNova').value } });
-    ['senhaAtual', 'senhaNova', 'senhaNova2'].forEach((id) => { $(id).value = ''; });
-    entrou({ ...usuario, trocarSenha: false });
-    toast('Senha definida');
-  } catch (err) { erro.textContent = err.message; erro.hidden = false; }
-});
+$('loginBtn').addEventListener('click', () => $('loginBtn').setAttribute('aria-busy', 'true'));
 
 document.querySelectorAll('[data-sair]').forEach((b) => b.addEventListener('click', async () => {
   await fetch('/api/rast/logout', { method: 'POST', credentials: 'same-origin' }).catch(() => {});
@@ -145,7 +112,6 @@ document.querySelectorAll('[data-sair]').forEach((b) => b.addEventListener('clic
 let appIniciado = false;
 function entrou(u) {
   usuario = u;
-  if (u.trocarSenha) { $('senhaUsuario').value = u.email || ''; mostrarTela('telaSenha'); setTimeout(() => $('senhaAtual').focus(), 50); return; }
   mostrarTela('telaApp');
   $('userNome').innerHTML = `<b>${escH(u.nome || u.email)}</b>`;
   $('tabUsuarios').hidden = u.papel !== 'admin';
@@ -232,7 +198,7 @@ async function buscarLinhas(tipo) {
 
 let consultaSeq = 0;
 async function consultar() {
-  if (!usuario || usuario.trocarSenha) return;
+  if (!usuario) return;
   const seq = ++consultaSeq;
   const aba = estado.aba;
   const pane = $(`pane-${aba}`);
@@ -860,12 +826,6 @@ function renderImportacoes(lista) {
 }
 
 // ======================= USUÁRIOS (admin) =======================
-function senhaAleatoria() {
-  const c = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
-  const a = crypto.getRandomValues(new Uint32Array(10));
-  return Array.from(a, (x) => c[x % c.length]).join('');
-}
-
 function renderUsuarios(lista) {
   const pane = $('pane-usuarios');
   pane.innerHTML = `
@@ -873,12 +833,11 @@ function renderUsuarios(lista) {
       <h2 class="sec">Novo acesso</h2>
       <form class="form-row" id="formUsuario" autocomplete="off">
         <label class="f">Nome<input class="in" id="uNome" required placeholder="Ex.: Gestão de Frota"></label>
-        <label class="f">E-mail<input class="in" id="uEmail" type="email" autocomplete="off" required></label>
+        <label class="f">E-mail<input class="in" id="uEmail" type="email" autocomplete="off" required placeholder="nome@rezendeenergia.com.br"></label>
         <label class="f" style="flex:0 0 150px">Perfil<select class="in" id="uPapel"><option value="usuario">Usuário</option><option value="admin">Administrador</option></select></label>
-        <label class="f">Senha temporária<input class="in" id="uSenha" autocomplete="off" data-lpignore="true" data-1p-ignore spellcheck="false" required minlength="8"></label>
-        <button class="btn primary" type="submit">Criar acesso</button>
+        <button class="btn primary" type="submit">Liberar acesso</button>
       </form>
-      <div class="hint" style="margin-top:8px">Passe a senha temporária para a pessoa por um canal seguro; no primeiro acesso ela é obrigada a trocar. Usuário vê e importa; administrador também gerencia acessos.</div>
+      <div class="hint" style="margin-top:8px">Informe o e-mail corporativo (@rezendeenergia.com.br). A pessoa entra com a própria conta Microsoft — não há senha. Usuário vê e importa; administrador também gerencia acessos.</div>
     </section>
     <section class="card">
       <h2 class="sec">Acessos <span class="n">${lista.length}</span></h2>
@@ -888,40 +847,32 @@ function renderUsuarios(lista) {
           <tr>
             <td>${escH(u.nome || '—')}</td><td>${escH(u.email)}</td>
             <td>${u.papel === 'admin' ? 'Administrador' : 'Usuário'}</td>
-            <td>${u.ativo ? (u.trocar_senha ? '<span class="tag">Aguardando 1º acesso</span>' : '<span class="tag ok">Ativo</span>') : '<span class="tag off">Desativado</span>'}</td>
+            <td>${u.ativo ? (u.ultimo_acesso ? '<span class="tag ok">Ativo</span>' : '<span class="tag">Ainda não entrou</span>') : '<span class="tag off">Desativado</span>'}</td>
             <td class="nw">${u.ultimo_acesso ? fmtDataHora(new Date(u.ultimo_acesso)) : '—'}</td>
             <td class="nw">${u.email === usuario.email ? '<span class="muted">você</span>' : `
-              <button class="btn sm" type="button" data-reset="${escH(u.email)}">Nova senha temporária</button>
               <button class="btn sm" type="button" data-ativo="${escH(u.email)}" data-v="${u.ativo ? '0' : '1'}">${u.ativo ? 'Desativar' : 'Reativar'}</button>`}
             </td>
           </tr>`).join('')}</tbody>
       </table></div>
     </section>`;
-  $('uSenha').value = senhaAleatoria();
   $('formUsuario').addEventListener('submit', async (ev) => {
     ev.preventDefault();
     try {
-      const email = $('uEmail').value.trim(), senha = $('uSenha').value;
-      await api('/usuarios', { method: 'POST', body: { nome: $('uNome').value, email, papel: $('uPapel').value, senha } });
-      alertaSenha(email, senha);
+      const email = $('uEmail').value.trim();
+      await api('/usuarios', { method: 'POST', body: { nome: $('uNome').value, email, papel: $('uPapel').value } });
+      msgImport('ok', `Acesso de <b>${escH(email)}</b> liberado. A pessoa entra em /rastreamento com a própria conta Microsoft.`);
       consultar();
     } catch (err) { toast(err.message); }
   });
-  pane.querySelectorAll('[data-reset]').forEach((b) => b.addEventListener('click', async () => {
-    const senha = senhaAleatoria();
-    try { await api(`/usuarios/${encodeURIComponent(b.dataset.reset)}`, { method: 'PATCH', body: { novaSenha: senha } }); alertaSenha(b.dataset.reset, senha); consultar(); } catch (err) { toast(err.message); }
-  }));
   pane.querySelectorAll('[data-ativo]').forEach((b) => b.addEventListener('click', async () => {
     try { await api(`/usuarios/${encodeURIComponent(b.dataset.ativo)}`, { method: 'PATCH', body: { ativo: b.dataset.v === '1' } }); consultar(); } catch (err) { toast(err.message); }
   }));
 }
-function alertaSenha(email, senha) {
-  msgImport('ok', `Acesso de <b>${escH(email)}</b> pronto. Senha temporária: <b style="font-family:monospace;font-size:15px">${escH(senha)}</b> — envie à pessoa; ela troca no primeiro acesso. Esta senha não aparece de novo.`);
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-}
 
 // ======================= início =======================
 (async () => {
+  const erroLogin = new URLSearchParams(location.search).get('erro');
+  if (erroLogin) history.replaceState(null, '', '/rastreamento');
   try {
     const res = await fetch('/api/rast/eu', { credentials: 'same-origin' });
     const data = await res.json().catch(() => ({}));
@@ -931,7 +882,7 @@ function alertaSenha(email, senha) {
       $('loginErro').hidden = false;
       return;
     }
-    if (!res.ok) { mostrarLogin(); return; }
+    if (!res.ok) { mostrarLogin(erroLogin ? (ERROS_LOGIN[erroLogin] || 'Não foi possível entrar. Tente de novo.') : undefined); return; }
     entrou(data);
   } catch { mostrarLogin('Sem conexão com o servidor.'); }
 })();

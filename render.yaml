@@ -29,6 +29,4 @@ services:
         sync: false
       - key: RAST_SESSION_SECRET
         sync: false
-      - key: RAST_ADMIN_SENHA_INICIAL
-        sync: false
     autoDeploy: true
