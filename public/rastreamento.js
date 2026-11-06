@@ -219,7 +219,7 @@ document.querySelectorAll('#tabs .tab').forEach((b) => b.addEventListener('click
 function trocarAba(aba) {
   estado.aba = aba;
   document.querySelectorAll('#tabs .tab').forEach((b) => b.classList.toggle('active', b.dataset.tab === aba));
-  for (const p of ['horario', 'ocioso', 'importacoes', 'usuarios']) $(`pane-${p}`).hidden = p !== aba;
+  for (const p of ['horario', 'ocioso', 'importacoes', 'custos', 'usuarios']) $(`pane-${p}`).hidden = p !== aba;
   $('periodBar').hidden = !['horario', 'ocioso'].includes(aba);
   consultar();
 }
@@ -252,6 +252,9 @@ async function consultar() {
       const lista = await api('/importacoes');
       if (seq !== consultaSeq) return;
       renderImportacoes(lista);
+    } else if (aba === 'custos') {
+      await renderCustos(pane, seq);
+      return; // renderCustos gerencia seu próprio estado
     } else if (aba === 'usuarios') {
       pane.innerHTML = '<div class="loading">Carregando…</div>';
       const lista = await api('/usuarios');
@@ -857,6 +860,332 @@ function renderImportacoes(lista) {
     definirPeriodo(parseDataHora(i.periodo_de), parseDataHora(i.periodo_ate));
     trocarAba(i.tipo === 'viagens' ? 'horario' : 'ocioso');
   }));
+}
+
+// ======================= CONTROLE DE CUSTOS =======================
+const custApi = async (path, opts = {}) => {
+  const res = await fetch(`/api/cust${path}`, {
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
+    ...opts,
+    body: opts.body != null ? JSON.stringify(opts.body) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.erro || `Erro ${res.status}`);
+  return data;
+};
+
+const fmtMes = (iso) => {
+  const [y, m] = iso.split('-');
+  const nomes = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  return `${nomes[+m - 1]}/${y}`;
+};
+
+let custState = { subAba: 'indicadores', veiculos: null, placaSel: '', de: '', ate: '' };
+
+async function renderCustos(pane, seq) {
+  pane.innerHTML = '<div class="loading">Carregando…</div>';
+  try {
+    if (!custState.veiculos) custState.veiculos = await custApi('/veiculos');
+    if (seq !== consultaSeq) return;
+  } catch (e) {
+    pane.innerHTML = `<div class="msg err">${escH(e.message)}</div>`;
+    return;
+  }
+
+  const veics = custState.veiculos.filter((v) => v.ativo);
+  const vOpts = veics.map((v) => `<option value="${escH(v.placa)}">${escH(v.placa)} — ${escH(v.modelo)}</option>`).join('');
+
+  pane.innerHTML = `
+<div class="cust-wrap">
+  <nav class="cust-tabs no-print">
+    <button class="ctab${custState.subAba==='indicadores'?' active':''}" data-ctab="indicadores">Indicadores</button>
+    <button class="ctab${custState.subAba==='consulta'?' active':''}" data-ctab="consulta">Consulta por placa</button>
+    <button class="ctab${custState.subAba==='lancar'?' active':''}" data-ctab="lancar">Lançar custo</button>
+    <button class="ctab${custState.subAba==='veiculos'?' active':''}" data-ctab="veiculos">Veículos</button>
+  </nav>
+
+  <!-- INDICADORES -->
+  <div class="cpane" id="cpane-indicadores" ${custState.subAba!=='indicadores'?'hidden':''}>
+    <div class="card">
+      <h2 class="sec">Visão mensal</h2>
+      <div class="form-row" style="align-items:flex-end;gap:8px">
+        <label class="f" style="flex:0 0 140px">De<input class="in" type="date" id="custDe" value="${custState.de}"></label>
+        <label class="f" style="flex:0 0 140px">Até<input class="in" type="date" id="custAte" value="${custState.ate}"></label>
+        <button class="btn primary" id="custFiltrar" type="button">Filtrar</button>
+      </div>
+    </div>
+    <div id="custIndicDiv"><div class="loading">Carregando indicadores…</div></div>
+  </div>
+
+  <!-- CONSULTA POR PLACA -->
+  <div class="cpane" id="cpane-consulta" ${custState.subAba!=='consulta'?'hidden':''}>
+    <div class="card">
+      <h2 class="sec">Consulta por placa</h2>
+      <div class="form-row" style="align-items:flex-end;gap:8px">
+        <label class="f">Placa<select class="in" id="custPlacaCons"><option value="">— todas —</option>${vOpts}</select></label>
+        <label class="f" style="flex:0 0 140px">De<input class="in" type="date" id="custDeC"></label>
+        <label class="f" style="flex:0 0 140px">Até<input class="in" type="date" id="custAteC"></label>
+        <button class="btn primary" id="custBuscar" type="button">Buscar</button>
+      </div>
+    </div>
+    <div id="custConsultaDiv"></div>
+  </div>
+
+  <!-- LANÇAR -->
+  <div class="cpane" id="cpane-lancar" ${custState.subAba!=='lancar'?'hidden':''}>
+    <div class="card">
+      <h2 class="sec">Novo lançamento</h2>
+      <form id="custForm" class="form-row" autocomplete="off">
+        <label class="f">Placa<select class="in" id="cPlaca" required><option value="">Selecione…</option>${vOpts}</select></label>
+        <label class="f" style="flex:0 0 150px">Data<input class="in" type="date" id="cData" required></label>
+        <label class="f" style="flex:0 0 140px">Tipo<select class="in" id="cTipo" required>
+          <option value="">Selecione…</option>
+          <option>Peça</option><option>Serviço</option><option>Pneu</option><option>Combustível</option><option>Outro</option>
+        </select></label>
+        <label class="f" style="flex:1 1 200px">Descrição<input class="in" id="cDesc" required maxlength="300" placeholder="Ex.: Troca de óleo"></label>
+        <label class="f" style="flex:0 0 80px">Qtd<input class="in" type="number" id="cQtd" value="1" min="0.001" step="any" required></label>
+        <label class="f" style="flex:0 0 130px">Valor unitário R$<input class="in" type="number" id="cVunit" min="0" step="0.01" required placeholder="0,00"></label>
+        <label class="f" style="flex:1 1 160px">Oficina<input class="in" id="cOficina" maxlength="150"></label>
+        <label class="f" style="flex:0 0 160px">Manutenção<select class="in" id="cManut">
+          <option value="">—</option><option>CORRETIVA</option><option>PREVENTIVA</option><option>PREDITIVA</option>
+        </select></label>
+        <label class="f" style="flex:0 0 140px">Status<input class="in" id="cStatus" maxlength="80" placeholder="Ex.: PG, EXECUTADO"></label>
+        <label class="f">Observação<input class="in" id="cObs" maxlength="300"></label>
+        <label class="f" style="flex:0 0 140px;justify-content:flex-end"><input type="checkbox" id="cGpm"> Inserida GPM</label>
+        <button class="btn primary" type="submit" style="align-self:flex-end">Salvar</button>
+      </form>
+      <div id="custFormMsg" class="msg" hidden></div>
+      <div class="hint">Valor total = Qtd × Valor unitário (calculado automaticamente)</div>
+    </div>
+  </div>
+
+  <!-- VEÍCULOS -->
+  <div class="cpane" id="cpane-veiculos" ${custState.subAba!=='veiculos'?'hidden':''}>
+    <div class="card">
+      <h2 class="sec">Veículos cadastrados</h2>
+      <div id="custVeicDiv"></div>
+      <h2 class="sec" style="margin-top:16px">Adicionar veículo</h2>
+      <form id="custVeicForm" class="form-row" autocomplete="off">
+        <label class="f" style="flex:0 0 140px">Placa<input class="in" id="nvPlaca" required maxlength="8" placeholder="AAA9A99" style="text-transform:uppercase"></label>
+        <label class="f" style="flex:1">Modelo<input class="in" id="nvModelo" required maxlength="100" placeholder="Ex.: HILUX"></label>
+        <button class="btn primary" type="submit">Adicionar</button>
+      </form>
+      <div id="custVeicMsg" class="msg" hidden></div>
+    </div>
+  </div>
+</div>`;
+
+  // sub-abas
+  pane.querySelectorAll('.ctab').forEach((b) => b.addEventListener('click', () => {
+    custState.subAba = b.dataset.ctab;
+    pane.querySelectorAll('.ctab').forEach((x) => x.classList.toggle('active', x === b));
+    pane.querySelectorAll('.cpane').forEach((x) => x.hidden = x.id !== `cpane-${b.dataset.ctab}`);
+    if (b.dataset.ctab === 'indicadores') carregarIndicadores();
+    if (b.dataset.ctab === 'veiculos') carregarVeicCad();
+  }));
+
+  // filtrar indicadores
+  $('custFiltrar').addEventListener('click', carregarIndicadores);
+  // buscar consulta
+  $('custBuscar').addEventListener('click', carregarConsulta);
+
+  // form lançamento
+  $('custForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const msg = $('custFormMsg');
+    msg.hidden = true;
+    const payload = {
+      placa: $('cPlaca').value, data: $('cData').value, tipo: $('cTipo').value,
+      descricao: $('cDesc').value, qtd: +$('cQtd').value, valor_unitario: +$('cVunit').value,
+      oficina: $('cOficina').value, tipo_manutencao: $('cManut').value,
+      status: $('cStatus').value, observacao: $('cObs').value,
+      inserida_gpm: $('cGpm').checked,
+    };
+    try {
+      await custApi('/lancamentos', { method: 'POST', body: payload });
+      msg.className = 'msg ok'; msg.textContent = 'Lançamento salvo com sucesso!'; msg.hidden = false;
+      $('custForm').reset();
+    } catch (err) {
+      msg.className = 'msg err'; msg.textContent = err.message; msg.hidden = false;
+    }
+  });
+
+  // form veículo
+  $('custVeicForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const msg = $('custVeicMsg');
+    msg.hidden = true;
+    try {
+      await custApi('/veiculos', { method: 'POST', body: { placa: $('nvPlaca').value.toUpperCase(), modelo: $('nvModelo').value } });
+      msg.className = 'msg ok'; msg.textContent = 'Veículo adicionado!'; msg.hidden = false;
+      $('custVeicForm').reset();
+      custState.veiculos = null; // força reload
+      carregarVeicCad();
+    } catch (err) {
+      msg.className = 'msg err'; msg.textContent = err.message; msg.hidden = false;
+    }
+  });
+
+  // carrega a sub-aba inicial
+  if (custState.subAba === 'indicadores') carregarIndicadores();
+  if (custState.subAba === 'veiculos') carregarVeicCad();
+
+  async function carregarIndicadores() {
+    const de  = $('custDe')?.value  || '';
+    const ate = $('custAte')?.value || '';
+    custState.de = de; custState.ate = ate;
+    const div = $('custIndicDiv');
+    if (!div) return;
+    div.innerHTML = '<div class="loading">Carregando…</div>';
+    try {
+      const params = new URLSearchParams();
+      if (de)  params.set('de',  de);
+      if (ate) params.set('ate', ate);
+      const { porVeiculo, porMes } = await custApi(`/resumo?${params}`);
+
+      const totalGeral = porVeiculo.reduce((s, v) => s + v.total, 0);
+      const totalPeca  = porVeiculo.reduce((s, v) => s + v.peca,  0);
+      const totalServ  = porVeiculo.reduce((s, v) => s + v.servico, 0);
+      const totalPrev  = porVeiculo.reduce((s, v) => s + v.preventiva, 0);
+      const totalCorr  = porVeiculo.reduce((s, v) => s + v.corretiva,  0);
+      const pctPrev    = totalPrev + totalCorr > 0 ? Math.round(totalPrev / (totalPrev + totalCorr) * 100) : null;
+
+      // KPIs
+      const kpis = `
+<div class="kpis" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:20px">
+  ${kpi('Total lançado', fmtBRL(totalGeral))}
+  ${kpi('Peças', fmtBRL(totalPeca))}
+  ${kpi('Serviços', fmtBRL(totalServ))}
+  ${kpi('% Preventiva', pctPrev != null ? pctPrev + '%' : '—')}
+  ${kpi('Veículos', porVeiculo.length)}
+</div>`;
+
+      // Tabela por veículo
+      const tabVeic = porVeiculo.length === 0 ? '<p class="hint">Nenhum lançamento no período.</p>' : `
+<div class="table-wrap"><table>
+  <thead><tr><th>Placa</th><th>Modelo</th><th style="text-align:right">Total</th><th style="text-align:right">Peças</th><th style="text-align:right">Serviços</th><th style="text-align:right">Preventiva</th><th style="text-align:right">Corretiva</th></tr></thead>
+  <tbody>${porVeiculo.map((v) => `<tr>
+    <td><button class="link-btn" data-placa="${escH(v.placa)}">${escH(v.placa)}</button></td>
+    <td>${escH(v.modelo)}</td>
+    <td style="text-align:right">${fmtBRL(v.total)}</td>
+    <td style="text-align:right">${fmtBRL(v.peca)}</td>
+    <td style="text-align:right">${fmtBRL(v.servico)}</td>
+    <td style="text-align:right">${fmtBRL(v.preventiva)}</td>
+    <td style="text-align:right">${fmtBRL(v.corretiva)}</td>
+  </tr>`).join('')}</tbody>
+</table></div>`;
+
+      // Tabela mensal
+      const tabMes = porMes.length === 0 ? '' : `
+<h2 class="sec" style="margin-top:20px">Evolução mensal</h2>
+<div class="table-wrap"><table>
+  <thead><tr><th>Mês</th><th style="text-align:right">Total</th><th style="text-align:right">Peças</th><th style="text-align:right">Serviços</th><th style="text-align:right">Preventiva</th><th style="text-align:right">Corretiva</th></tr></thead>
+  <tbody>${porMes.map((m) => `<tr>
+    <td>${fmtMes(m.mes)}</td>
+    <td style="text-align:right">${fmtBRL(m.total)}</td>
+    <td style="text-align:right">${fmtBRL(m.peca)}</td>
+    <td style="text-align:right">${fmtBRL(m.servico)}</td>
+    <td style="text-align:right">${fmtBRL(m.preventiva)}</td>
+    <td style="text-align:right">${fmtBRL(m.corretiva)}</td>
+  </tr>`).join('')}</tbody>
+</table></div>`;
+
+      div.innerHTML = `<div class="card">${kpis}<h2 class="sec">Por veículo</h2>${tabVeic}${tabMes}</div>`;
+
+      // clique na placa → ir para consulta
+      div.querySelectorAll('[data-placa]').forEach((b) => b.addEventListener('click', () => {
+        custState.subAba = 'consulta';
+        pane.querySelectorAll('.ctab').forEach((x) => x.classList.toggle('active', x.dataset.ctab === 'consulta'));
+        pane.querySelectorAll('.cpane').forEach((x) => x.hidden = x.id !== 'cpane-consulta');
+        const sel = $('custPlacaCons'); if (sel) sel.value = b.dataset.placa;
+        carregarConsulta();
+      }));
+    } catch (err) {
+      div.innerHTML = `<div class="msg err">${escH(err.message)}</div>`;
+    }
+  }
+
+  async function carregarConsulta() {
+    const placa = $('custPlacaCons')?.value || '';
+    const de    = $('custDeC')?.value || '';
+    const ate   = $('custAteC')?.value || '';
+    const div   = $('custConsultaDiv');
+    if (!div) return;
+    div.innerHTML = '<div class="loading">Carregando…</div>';
+    try {
+      const params = new URLSearchParams();
+      if (placa) params.set('placa', placa);
+      if (de)    params.set('de',    de);
+      if (ate)   params.set('ate',   ate);
+      const { lancamentos } = await custApi(`/lancamentos?${params}`);
+      if (!lancamentos.length) { div.innerHTML = '<div class="card"><p class="hint">Nenhum lançamento encontrado.</p></div>'; return; }
+
+      const total = lancamentos.reduce((s, l) => s + (Number(l.valor_total) || 0), 0);
+      const rows  = lancamentos.map((l) => `<tr>
+        <td>${diaBR(l.data)}</td>
+        <td>${escH(l.placa)}</td>
+        <td>${escH(l.tipo)}</td>
+        <td>${escH(l.descricao)}</td>
+        <td style="text-align:right">${(+l.qtd).toLocaleString('pt-BR',{maximumFractionDigits:3})}</td>
+        <td style="text-align:right">${fmtBRL(+l.valor_unitario)}</td>
+        <td style="text-align:right"><strong>${fmtBRL(+l.valor_total)}</strong></td>
+        <td>${escH(l.oficina)}</td>
+        <td>${escH(l.tipo_manutencao)}</td>
+        <td>${escH(l.status)}</td>
+        <td>${l.inserida_gpm ? 'Sim' : 'Não'}</td>
+        <td><button class="link-btn del-lanc" data-id="${l.id}" title="Excluir">🗑</button></td>
+      </tr>`).join('');
+
+      div.innerHTML = `<div class="card">
+        <div class="kpis" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:12px">
+          ${kpi('Total', fmtBRL(total))} ${kpi('Lançamentos', lancamentos.length)}
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Data</th><th>Placa</th><th>Tipo</th><th>Descrição</th><th style="text-align:right">Qtd</th><th style="text-align:right">Unit.</th><th style="text-align:right">Total</th><th>Oficina</th><th>Manutenção</th><th>Status</th><th>GPM</th><th></th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table></div>
+      </div>`;
+
+      div.querySelectorAll('.del-lanc').forEach((b) => b.addEventListener('click', async () => {
+        if (!confirm('Excluir este lançamento?')) return;
+        try {
+          await custApi(`/lancamentos/${b.dataset.id}`, { method: 'DELETE' });
+          carregarConsulta();
+        } catch (err) { alert(err.message); }
+      }));
+    } catch (err) {
+      div.innerHTML = `<div class="msg err">${escH(err.message)}</div>`;
+    }
+  }
+
+  async function carregarVeicCad() {
+    if (!custState.veiculos) {
+      try { custState.veiculos = await custApi('/veiculos'); } catch {}
+    }
+    const div = $('custVeicDiv');
+    if (!div || !custState.veiculos) return;
+    const rows = custState.veiculos.map((v) => `<tr>
+      <td>${escH(v.placa)}</td>
+      <td>${escH(v.modelo)}</td>
+      <td><span class="badge ${v.ativo ? 'ok' : 'err'}">${v.ativo ? 'Ativo' : 'Inativo'}</span></td>
+      <td><button class="link-btn tog-veic" data-placa="${escH(v.placa)}" data-ativo="${v.ativo}">${v.ativo ? 'Desativar' : 'Ativar'}</button></td>
+    </tr>`).join('');
+    div.innerHTML = `<div class="table-wrap"><table>
+      <thead><tr><th>Placa</th><th>Modelo</th><th>Status</th><th></th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+    div.querySelectorAll('.tog-veic').forEach((b) => b.addEventListener('click', async () => {
+      try {
+        await custApi(`/veiculos/${b.dataset.placa}`, { method: 'PATCH', body: { ativo: b.dataset.ativo === 'true' ? false : true } });
+        custState.veiculos = null; carregarVeicCad();
+      } catch (err) { alert(err.message); }
+    }));
+  }
+}
+
+function kpi(label, valor) {
+  return `<div class="kpi"><div class="l">${escH(String(label))}</div><div class="v">${escH(String(valor))}</div></div>`;
 }
 
 // ======================= USUÁRIOS (admin) =======================
