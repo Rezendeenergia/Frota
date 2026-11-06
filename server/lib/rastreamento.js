@@ -162,41 +162,46 @@ function diaSeguinte(d) {
   return x.toISOString().slice(0, 10);
 }
 
+// ---------------- middlewares compartilhados ----------------
+// erros assíncronos -> JSON (usado em criarRouter e rotasCustos)
+const asyncWrap = (fn) => (req, res) => fn(req, res).catch((err) => {
+  console.error('[frota]', err?.message || err);
+  res.status(err.status && err.status < 500 ? 400 : 500).json({ erro: 'Erro ao falar com o banco de dados. Tente de novo; se persistir, avise a TI.' });
+});
+
+async function autenticar(req, res, next) {
+  const s = verificar(lerCookie(req, COOKIE));
+  if (!s) return res.status(401).json({ erro: 'Sessão expirada. Entre novamente.' });
+  try {
+    const u = await buscarUsuario(s.e);
+    if (!u || !u.ativo) return res.status(401).json({ erro: 'Acesso desativado.' });
+    req.usuario = u;
+    if (u.trocar_senha && !['/senha', '/eu', '/logout'].includes(req.path)) {
+      return res.status(403).json({ erro: 'Troque a senha temporária para continuar.', trocarSenha: true });
+    }
+    next();
+  } catch (err) {
+    console.error('[frota] sessão:', err?.message || err);
+    res.status(500).json({ erro: 'Falha ao verificar a sessão.' });
+  }
+}
+const soAdmin = (req, res, next) => (req.usuario?.papel === 'admin' ? next() : res.status(403).json({ erro: 'Apenas administradores.' }));
+
 // ---------------- router ----------------
 export function criarRouter() {
   const r = express.Router();
   r.use(express.json({ limit: '40mb' }));
 
-  // erros assíncronos -> JSON
-  const h = (fn) => (req, res) => fn(req, res).catch((err) => {
-    console.error('[rastreamento]', err?.message || err);
-    res.status(err.status && err.status < 500 ? 400 : 500).json({ erro: 'Erro ao falar com o banco de dados. Tente de novo; se persistir, avise a TI.' });
-  });
+  // alias internos para manter compatibilidade com o código abaixo
+  const h = asyncWrap;
 
   r.use((req, res, next) => {
     if (!configurado()) return res.status(503).json({ erro: 'Histórico ainda não configurado no servidor (variáveis RAST_* no Render).' });
     next();
   });
 
-  // sessão
-  async function exigirLogin(req, res, next) {
-    const s = verificar(lerCookie(req, COOKIE));
-    if (!s) return res.status(401).json({ erro: 'Sessão expirada. Entre novamente.' });
-    try {
-      const u = await buscarUsuario(s.e);
-      if (!u || !u.ativo) return res.status(401).json({ erro: 'Acesso desativado.' });
-      req.usuario = u;
-      // enquanto não trocar a senha temporária, só pode trocar a senha / sair
-      if (u.trocar_senha && !['/senha', '/eu', '/logout'].includes(req.path)) {
-        return res.status(403).json({ erro: 'Troque a senha temporária para continuar.', trocarSenha: true });
-      }
-      next();
-    } catch (err) {
-      console.error('[rastreamento] sessão:', err?.message || err);
-      res.status(500).json({ erro: 'Falha ao verificar a sessão.' });
-    }
-  }
-  const exigirAdmin = (req, res, next) => (req.usuario?.papel === 'admin' ? next() : res.status(403).json({ erro: 'Apenas administradores.' }));
+  const exigirLogin = autenticar;
+  const exigirAdmin = soAdmin;
 
   r.post('/login', h(async (req, res) => {
     const email = String(req.body?.email || '').trim().toLowerCase();
@@ -385,4 +390,151 @@ export function criarRouter() {
   }));
 
   return r;
+}
+
+// ==================== CONTROLE DE CUSTOS ====================
+// Rotas sob /api/cust/* — mesma autenticação do rastreamento (cookie rast_sess).
+
+export function rotasCustos(app) {
+  const r = express.Router();
+  r.use(express.json({ limit: '5mb' }));
+
+  // GET /api/cust/veiculos — lista todos os veículos
+  r.get('/veiculos', autenticar, asyncWrap(async (req, res) => {
+    const data = await sb('/rest/v1/cust_veiculos?select=*&order=placa.asc');
+    res.json(data || []);
+  }));
+
+  // POST /api/cust/veiculos — adiciona veículo
+  r.post('/veiculos', autenticar, asyncWrap(async (req, res) => {
+    const { placa, modelo } = req.body || {};
+    if (!placa) return res.status(400).json({ erro: 'Placa obrigatória.' });
+    const data = await sb('/rest/v1/cust_veiculos', {
+      method: 'POST',
+      body: { placa: String(placa).trim().toUpperCase(), modelo: String(modelo || '').trim() },
+      headers: { Prefer: 'return=representation' },
+    });
+    res.json((data || [])[0] || {});
+  }));
+
+  // PATCH /api/cust/veiculos/:placa — atualiza veículo
+  r.patch('/veiculos/:placa', autenticar, asyncWrap(async (req, res) => {
+    const placa = req.params.placa.toUpperCase();
+    const campos = {};
+    if (req.body?.modelo !== undefined) campos.modelo = String(req.body.modelo).trim();
+    if (req.body?.ativo !== undefined)  campos.ativo  = Boolean(req.body.ativo);
+    if (!Object.keys(campos).length) return res.status(400).json({ erro: 'Nada para alterar.' });
+    await sb(`/rest/v1/cust_veiculos?placa=eq.${q(placa)}`, { method: 'PATCH', body: campos });
+    res.json({ ok: true });
+  }));
+
+  // GET /api/cust/lancamentos?placa=&de=&ate=&page=&pageSize= — consulta
+  r.get('/lancamentos', autenticar, asyncWrap(async (req, res) => {
+    const { placa, de, ate } = req.query;
+    const page     = Math.max(1, parseInt(req.query.page || '1'));
+    const pageSize = Math.min(500, Math.max(1, parseInt(req.query.pageSize || '100')));
+    const offset   = (page - 1) * pageSize;
+
+    let filtro = '';
+    if (placa) filtro += `&placa=eq.${q(placa.toUpperCase())}`;
+    if (de)    filtro += `&data=gte.${q(de)}`;
+    if (ate)   filtro += `&data=lte.${q(ate)}`;
+
+    const data = await sb(
+      `/rest/v1/cust_lancamentos?select=*&order=data.desc,id.desc&limit=${pageSize}&offset=${offset}${filtro}`
+    );
+    res.json({ lancamentos: data || [] });
+  }));
+
+  // GET /api/cust/resumo?de=&ate= — totais por placa e indicadores mensais
+  r.get('/resumo', autenticar, asyncWrap(async (req, res) => {
+    const { de, ate } = req.query;
+    let filtro = '';
+    if (de)  filtro += `&data=gte.${q(de)}`;
+    if (ate) filtro += `&data=lte.${q(ate)}`;
+
+    const [lanc, veic] = await Promise.all([
+      sb(`/rest/v1/cust_lancamentos?select=placa,data,tipo,valor_total,tipo_manutencao${filtro}&order=data.asc`),
+      sb('/rest/v1/cust_veiculos?select=placa,modelo'),
+    ]);
+
+    const modeloPor = {};
+    for (const v of (veic || [])) modeloPor[v.placa] = v.modelo;
+
+    const porVeiculo = new Map();
+    const porMes     = new Map();
+
+    for (const l of (lanc || [])) {
+      const vt  = Number(l.valor_total) || 0;
+      const mes = String(l.data).slice(0, 7);
+
+      if (!porVeiculo.has(l.placa)) porVeiculo.set(l.placa, { placa: l.placa, modelo: modeloPor[l.placa] || '', total: 0, peca: 0, servico: 0, preventiva: 0, corretiva: 0 });
+      const pv = porVeiculo.get(l.placa);
+      pv.total += vt;
+      if (l.tipo === 'Peça')                    pv.peca       += vt;
+      if (l.tipo === 'Serviço')                  pv.servico    += vt;
+      if (l.tipo_manutencao === 'PREVENTIVA')    pv.preventiva += vt;
+      if (l.tipo_manutencao === 'CORRETIVA')     pv.corretiva  += vt;
+
+      if (!porMes.has(mes)) porMes.set(mes, { mes, total: 0, peca: 0, servico: 0, preventiva: 0, corretiva: 0 });
+      const pm = porMes.get(mes);
+      pm.total += vt;
+      if (l.tipo === 'Peça')                     pm.peca       += vt;
+      if (l.tipo === 'Serviço')                   pm.servico    += vt;
+      if (l.tipo_manutencao === 'PREVENTIVA')     pm.preventiva += vt;
+      if (l.tipo_manutencao === 'CORRETIVA')      pm.corretiva  += vt;
+    }
+
+    res.json({
+      porVeiculo: [...porVeiculo.values()].sort((a, b) => b.total - a.total),
+      porMes:     [...porMes.values()].sort((a, b) => a.mes.localeCompare(b.mes)),
+    });
+  }));
+
+  // POST /api/cust/lancamentos — insere lançamento
+  r.post('/lancamentos', autenticar, asyncWrap(async (req, res) => {
+    const { placa, data, tipo, descricao, qtd, valor_unitario, oficina, tipo_manutencao, status, observacao, inserida_gpm } = req.body || {};
+    if (!placa || !data || !tipo || !descricao)
+      return res.status(400).json({ erro: 'Campos obrigatórios: placa, data, tipo, descricao.' });
+    const payload = {
+      placa:          String(placa).toUpperCase(),
+      data:           String(data),
+      tipo:           String(tipo),
+      descricao:      String(descricao).trim(),
+      qtd:            Number(qtd) || 1,
+      valor_unitario: Number(valor_unitario) || 0,
+      oficina:        String(oficina || '').trim(),
+      tipo_manutencao: String(tipo_manutencao || '').trim().toUpperCase(),
+      status:         String(status || '').trim(),
+      observacao:     String(observacao || '').trim(),
+      inserida_gpm:   Boolean(inserida_gpm),
+      criado_por:     req.usuario?.email || '',
+    };
+    const ret = await sb('/rest/v1/cust_lancamentos', {
+      method: 'POST', body: payload, headers: { Prefer: 'return=representation' },
+    });
+    res.json((ret || [])[0] || {});
+  }));
+
+  // PATCH /api/cust/lancamentos/:id — edita lançamento
+  r.patch('/lancamentos/:id', autenticar, asyncWrap(async (req, res) => {
+    const id = parseInt(req.params.id);
+    if (!id) return res.status(400).json({ erro: 'ID inválido.' });
+    const campos = {};
+    const allow = ['data','tipo','descricao','qtd','valor_unitario','oficina','tipo_manutencao','status','observacao','inserida_gpm'];
+    for (const k of allow) if (req.body?.[k] !== undefined) campos[k] = req.body[k];
+    if (!Object.keys(campos).length) return res.status(400).json({ erro: 'Nada para alterar.' });
+    await sb(`/rest/v1/cust_lancamentos?id=eq.${id}`, { method: 'PATCH', body: campos });
+    res.json({ ok: true });
+  }));
+
+  // DELETE /api/cust/lancamentos/:id — remove lançamento
+  r.delete('/lancamentos/:id', autenticar, asyncWrap(async (req, res) => {
+    const id = parseInt(req.params.id);
+    if (!id) return res.status(400).json({ erro: 'ID inválido.' });
+    await sb(`/rest/v1/cust_lancamentos?id=eq.${id}`, { method: 'DELETE' });
+    res.json({ ok: true });
+  }));
+
+  app.use('/api/cust', r);
 }

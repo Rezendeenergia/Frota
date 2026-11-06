@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { fetchManutencao } from './lib/manutencaoService.js';
 import { fetchAbastecimento } from './lib/abastecimentoService.js';
 import { fetchEstoque } from './lib/estoqueService.js';
-import { criarRouter as criarRastreamento } from './lib/rastreamento.js';
+import { criarRouter as criarRastreamento, rotasCustos } from './lib/rastreamento.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
@@ -87,6 +87,9 @@ app.set('trust proxy', 1);
 
 // Histórico do rastreamento (login próprio; acessa o Supabase só daqui).
 app.use('/api/rast', criarRastreamento());
+
+// Controle de custos da frota (mesma autenticação do rastreamento).
+rotasCustos(app);
 
 app.get('/api/painel', async (req, res) => {
   const forceRequested = ['1', 'true'].includes(String(req.query.force));
