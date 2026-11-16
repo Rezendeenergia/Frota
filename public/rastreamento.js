@@ -1184,10 +1184,6 @@ async function renderCustos(pane, seq) {
   }
 }
 
-function kpi(label, valor) {
-  return `<div class="kpi"><div class="l">${escH(String(label))}</div><div class="v">${escH(String(valor))}</div></div>`;
-}
-
 // ======================= USUÁRIOS (admin) =======================
 function senhaAleatoria() {
   const c = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
