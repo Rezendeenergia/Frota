@@ -5,6 +5,7 @@ import { fetchManutencao } from './lib/manutencaoService.js';
 import { fetchAbastecimento } from './lib/abastecimentoService.js';
 import { fetchEstoque } from './lib/estoqueService.js';
 import { criarRouter as criarRastreamento, rotasCustos } from './lib/rastreamento.js';
+import { criarRouterFrota } from './lib/frota.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
@@ -85,6 +86,9 @@ const app = express();
 // Render fica atrás de proxy: necessário para IP real (limite de login) e cookie Secure.
 app.set('trust proxy', 1);
 
+// Central da Frota: login Microsoft + dados de veículos/abastecimento.
+app.use('/api/frota', criarRouterFrota());
+
 // Histórico do rastreamento (login próprio; acessa o Supabase só daqui).
 app.use('/api/rast', criarRastreamento());
 
@@ -126,6 +130,10 @@ app.use(express.static(PUBLIC_DIR));
 app.get('/login', (req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, 'login.html'));
 });
+
+// Central da Frota — tela principal e tela de login.
+app.get('/frota', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'frota.html')));
+app.get('/frota/login', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'frota-login.html')));
 
 // Análises do rastreamento (fora de horário + motor ligado parado), com histórico.
 app.get('/rastreamento', (req, res) => {

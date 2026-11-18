@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Frota — Rezende Energia</title>
+  <link rel="icon" href="/img/favicon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/rezende-tema.css">
+  <style>
+    /* ---- layout ---- */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --entrada-bg: rgba(255,255,255,.92);
+      --entrada-sombra: 0 8px 40px rgba(0,0,0,.18);
+      --veu: linear-gradient(135deg,rgba(0,0,0,.55) 0%,rgba(0,0,0,.35) 100%);
+      --eyebrow: #e87722;
+    }
+    [data-rz-tema="escuro"] {
+      --entrada-bg: rgba(28,28,30,.93);
+      --entrada-sombra: 0 8px 40px rgba(0,0,0,.55);
+    }
+
+    html, body { height: 100%; }
+    body {
+      font-family: 'Barlow', sans-serif;
+      display: flex; flex-direction: column;
+      background: #111;
+    }
+
+    /* fundo foto */
+    body::before {
+      content: '';
+      position: fixed; inset: 0; z-index: 0;
+      background: url('/img/fundo-login.jpg') center/cover no-repeat;
+    }
+    body::after {
+      content: '';
+      position: fixed; inset: 0; z-index: 1;
+      background: var(--veu);
+    }
+
+    .topo {
+      position: relative; z-index: 10;
+      display: flex; justify-content: flex-end; align-items: center;
+      padding: .75rem 1.25rem;
+    }
+
+    .rz-tema-btn {
+      background: rgba(255,255,255,.18); border: none;
+      color: #fff; border-radius: 20px; cursor: pointer;
+      padding: .35rem .85rem; font-size: .8rem; font-family: inherit;
+      font-weight: 500; letter-spacing: .02em; transition: background .2s;
+    }
+    .rz-tema-btn:hover { background: rgba(255,255,255,.28); }
+
+    .entrada {
+      flex: 1; position: relative; z-index: 10;
+      display: flex; align-items: center; justify-content: center;
+      padding: 2rem 1rem;
+    }
+
+    .cartao {
+      background: var(--entrada-bg);
+      box-shadow: var(--entrada-sombra);
+      border-radius: 16px;
+      padding: 2.5rem 2.25rem 2.25rem;
+      width: 100%; max-width: 400px;
+      display: flex; flex-direction: column; gap: 1.1rem;
+      backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    }
+
+    .logo { height: 36px; width: auto; display: block; }
+    .logo-escuro { display: none; }
+    [data-rz-tema="escuro"] .logo-claro { display: none; }
+    [data-rz-tema="escuro"] .logo-escuro { display: block; }
+
+    .eyebrow {
+      font-size: .78rem; font-weight: 600; letter-spacing: .08em;
+      text-transform: uppercase; color: var(--eyebrow);
+      margin-top: -.2rem;
+    }
+
+    .cartao h1 {
+      font-size: 1.3rem; font-weight: 700; line-height: 1.3;
+      color: var(--rz-texto);
+      margin-bottom: .2rem;
+    }
+
+    /* erro */
+    .erro {
+      background: #fff3f3; border: 1px solid #ffd5d5;
+      border-radius: 8px; padding: .7rem .9rem;
+      font-size: .88rem; color: #c0392b; line-height: 1.4;
+    }
+    [data-rz-tema="escuro"] .erro {
+      background: rgba(192,57,43,.18); border-color: rgba(192,57,43,.4);
+      color: #ff8c82;
+    }
+
+    /* botão Microsoft */
+    .btn-ms {
+      display: flex; align-items: center; gap: .75rem;
+      background: #e87722; color: #fff;
+      border-radius: 8px; padding: .9rem 1.1rem;
+      font-family: inherit; font-size: .97rem; font-weight: 600;
+      text-decoration: none; cursor: pointer; border: none;
+      transition: background .18s, transform .12s;
+      justify-content: center;
+    }
+    .btn-ms:hover { background: #d06218; transform: translateY(-1px); }
+    .btn-ms:active { transform: translateY(0); }
+
+    /* 4 quadrinhos coloridos (logo Microsoft) */
+    .ms {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 2px;
+      width: 18px; height: 18px; flex-shrink: 0;
+    }
+    .ms span:nth-child(1) { background: #f25022; }
+    .ms span:nth-child(2) { background: #7fba00; }
+    .ms span:nth-child(3) { background: #00a4ef; }
+    .ms span:nth-child(4) { background: #ffb900; }
+
+    .seta { margin-left: auto; opacity: .8; }
+
+    .rodape {
+      position: relative; z-index: 10;
+      text-align: center; padding: 1rem;
+      font-size: .78rem; color: rgba(255,255,255,.55);
+    }
+  </style>
+</head>
+<body>
+  <header class="topo">
+    <button class="rz-tema-btn" data-rz-tema aria-label="Alternar tema">🌙 Escuro</button>
+  </header>
+
+  <main class="entrada">
+    <div class="cartao">
+      <img class="logo logo-claro" src="/img/logo-rezende.png" alt="Rezende Energia">
+      <img class="logo logo-escuro" src="/img/logo-rezende-branca.png" alt="Rezende Energia">
+
+      <p class="eyebrow">Central da Frota</p>
+      <h1>Locação, abastecimento e rastreamento em um só lugar</h1>
+
+      <div class="erro" id="erro" hidden></div>
+
+      <a class="btn-ms" href="/api/frota/microsoft" id="entrar">
+        <span class="ms">
+          <span></span><span></span><span></span><span></span>
+        </span>
+        Entrar com a conta Rezende
+        <span class="seta">→</span>
+      </a>
+    </div>
+  </main>
+
+  <footer class="rodape">
+    © <span id="ano"></span> Rezende Energia · Todos os direitos reservados
+  </footer>
+
+  <script src="/js/rezende-tema.js"></script>
+  <script>
+    document.getElementById('ano').textContent = new Date().getFullYear();
+
+    // Exibe mensagem de erro vinda de ?erro=
+    const ERROS = {
+      dominio:            'Acesso permitido apenas para contas @rezendeenergia.com.br.',
+      desativado:         'Sua conta está desativada. Fale com o TI.',
+      microsoft:          'Não foi possível iniciar o login com a Microsoft. Tente novamente.',
+      microsoft_negado:   'O login com a Microsoft foi cancelado.',
+      microsoft_callback: 'Ocorreu um erro ao concluir o login. Tente novamente.',
+      sessao_expirada:    'Sua sessão expirou. Entre novamente.',
+      banco:              'Erro interno ao verificar sua conta. Tente novamente mais tarde.',
+    };
+    const p = new URLSearchParams(location.search);
+    const cod = p.get('erro');
+    if (cod) {
+      const el = document.getElementById('erro');
+      el.textContent = ERROS[cod] || 'Ocorreu um erro. Tente novamente.';
+      el.hidden = false;
+    }
+  </script>
+</body>
+</html>
