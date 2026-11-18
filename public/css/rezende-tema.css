@@ -1,0 +1,173 @@
+/* =====================================================================
+   REZENDE ENERGIA — TEMA PADRÃO DOS SISTEMAS  (v1.0)
+   ---------------------------------------------------------------------
+   Arquivo único de cores, fontes e medidas. Copie-o (junto com
+   rezende-tema.js) para qualquer sistema da Rezende e use SEMPRE as
+   variáveis abaixo — nunca escreva cor em hexadecimal no código da tela.
+
+   Base: tela de login do PortalRez (azul-noite + laranja do raio).
+
+   Camadas:
+     1. Primitivas   --rz-laranja-*, --rz-azul-*, --rz-cinza-*  (subtons)
+     2. Semânticas   --fundo, --sup, --texto, --laranja, --ok ...  (use estas)
+   Modo: <html data-theme="claro|escuro">. Sem atributo, segue o sistema.
+   ===================================================================== */
+
+:root {
+  /* ---------- 1. PRIMITIVAS — subtons da marca ---------- */
+
+  /* Laranja do raio (cor principal da marca = 500) */
+  --rz-laranja-50:  #FFF6EB;
+  --rz-laranja-100: #FFE8CC;
+  --rz-laranja-200: #FFD199;
+  --rz-laranja-300: #FFB35A;
+  --rz-laranja-400: #FBA23F;
+  --rz-laranja-500: #F7931E;  /* ← laranja oficial */
+  --rz-laranja-600: #D97A0B;
+  --rz-laranja-700: #B45309;  /* laranja para texto em fundo claro */
+  --rz-laranja-800: #8A3F07;
+  --rz-laranja-900: #5C2A05;
+
+  /* Azul-noite (fundo do PortalRez = 950) */
+  --rz-azul-50:  #EEF2F8;
+  --rz-azul-100: #DCE3EE;
+  --rz-azul-200: #B9C5D8;
+  --rz-azul-300: #A3B0C4;
+  --rz-azul-400: #7F8DA3;
+  --rz-azul-500: #5B6B84;
+  --rz-azul-600: #3A4A66;
+  --rz-azul-700: #1B2945;
+  --rz-azul-800: #15213A;
+  --rz-azul-850: #0F1829;
+  --rz-azul-900: #0A111E;
+  --rz-azul-950: #070B14;  /* ← fundo oficial do modo escuro */
+
+  /* Cinzas neutros (modo claro) */
+  --rz-cinza-0:   #FFFFFF;
+  --rz-cinza-50:  #F6F8FB;
+  --rz-cinza-100: #EEF1F6;
+  --rz-cinza-200: #E2E7EF;
+  --rz-cinza-500: #64748B;
+  --rz-cinza-700: #475569;
+
+  /* ---------- Fontes e medidas (iguais nos dois modos) ---------- */
+  --f-titulo: "Barlow Semi Condensed", "Arial Narrow", system-ui, sans-serif;
+  --f-texto:  "Barlow", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --raio-p: 10px;
+  --raio:   16px;
+  --raio-g: 22px;
+  --transicao: .18s ease;
+}
+
+/* ---------- 2. SEMÂNTICAS — MODO CLARO (padrão) ---------- */
+:root,
+:root[data-theme="claro"] {
+  color-scheme: light;
+
+  --fundo:   #F3F5F9;              /* fundo da página */
+  --fundo-2: #FFFFFF;              /* barra lateral / topo */
+  --sup:     #FFFFFF;              /* cartões, modais, tabelas */
+  --sup-2:   var(--rz-cinza-50);   /* campo, linha em destaque */
+  --sup-3:   var(--rz-cinza-100);  /* hover, chips */
+  --linha:       rgba(15, 24, 41, 0.09);
+  --linha-forte: rgba(15, 24, 41, 0.17);
+
+  --texto:   var(--rz-azul-850);
+  --texto-2: var(--rz-cinza-700);
+  --texto-3: var(--rz-cinza-500);
+
+  --laranja:        var(--rz-laranja-500);  /* fundos, botões, bordas */
+  --laranja-hover:  var(--rz-laranja-600);
+  --laranja-texto:  var(--rz-laranja-700);  /* texto/ícone laranja */
+  --laranja-fundo:  rgba(247, 147, 30, 0.12);
+  --sobre-laranja:  #1A0F02;                /* texto em cima do laranja */
+
+  --ok:           #047857;  --ok-fundo:     rgba(16, 185, 129, 0.13);
+  --alerta:       #BE123C;  --alerta-fundo: rgba(244, 63, 94, 0.11);
+  --aviso:        #B45309;  --aviso-fundo:  rgba(245, 158, 11, 0.15);
+  --info:         #1D4ED8;  --info-fundo:   rgba(59, 130, 246, 0.11);
+  --neutro-fundo: var(--rz-cinza-100);
+
+  --sombra:   0 1px 2px rgba(15, 24, 41, 0.05), 0 8px 24px -14px rgba(15, 24, 41, 0.18);
+  --sombra-g: 0 24px 60px -20px rgba(15, 24, 41, 0.35);
+  --veu:      rgba(7, 11, 20, 0.45);   /* fundo atrás de modais */
+
+  /* Paleta de gráficos (ordem fixa: use na sequência) */
+  --graf-1: #F7931E;  --graf-2: #1E3A8A;  --graf-3: #0D9488;
+  --graf-4: #B45309;  --graf-5: #7C3AED;  --graf-6: #64748B;
+  --graf-grade: rgba(15, 24, 41, 0.08);
+}
+
+/* ---------- 2. SEMÂNTICAS — MODO ESCURO ---------- */
+:root[data-theme="escuro"] {
+  color-scheme: dark;
+
+  --fundo:   var(--rz-azul-950);
+  --fundo-2: var(--rz-azul-900);
+  --sup:     var(--rz-azul-850);
+  --sup-2:   var(--rz-azul-800);
+  --sup-3:   var(--rz-azul-700);
+  --linha:       rgba(148, 163, 184, 0.14);
+  --linha-forte: rgba(148, 163, 184, 0.26);
+
+  --texto:   #E9EEF6;
+  --texto-2: var(--rz-azul-300);
+  --texto-3: var(--rz-azul-400);
+
+  --laranja:        var(--rz-laranja-500);
+  --laranja-hover:  var(--rz-laranja-300);
+  --laranja-texto:  var(--rz-laranja-300);
+  --laranja-fundo:  rgba(247, 147, 30, 0.13);
+  --sobre-laranja:  #1A0F02;
+
+  --ok:           #34D399;  --ok-fundo:     rgba(52, 211, 153, 0.13);
+  --alerta:       #FB7185;  --alerta-fundo: rgba(251, 113, 133, 0.13);
+  --aviso:        #FBBF24;  --aviso-fundo:  rgba(251, 191, 36, 0.13);
+  --info:         #60A5FA;  --info-fundo:   rgba(96, 165, 250, 0.13);
+  --neutro-fundo: var(--rz-azul-700);
+
+  --sombra:   0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 12px 32px -18px rgba(0, 0, 0, 0.7);
+  --sombra-g: 0 24px 70px -20px rgba(0, 0, 0, 0.8);
+  --veu:      rgba(2, 4, 9, 0.7);
+
+  --graf-1: #F7931E;  --graf-2: #60A5FA;  --graf-3: #2DD4BF;
+  --graf-4: #FFB35A;  --graf-5: #A78BFA;  --graf-6: #94A3B8;
+  --graf-grade: rgba(148, 163, 184, 0.12);
+}
+
+/* Sem escolha salva: acompanha o sistema operacional */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
+    --fundo: var(--rz-azul-950); --fundo-2: var(--rz-azul-900);
+    --sup: var(--rz-azul-850); --sup-2: var(--rz-azul-800); --sup-3: var(--rz-azul-700);
+    --linha: rgba(148, 163, 184, 0.14); --linha-forte: rgba(148, 163, 184, 0.26);
+    --texto: #E9EEF6; --texto-2: var(--rz-azul-300); --texto-3: var(--rz-azul-400);
+    --laranja-hover: var(--rz-laranja-300); --laranja-texto: var(--rz-laranja-300);
+    --laranja-fundo: rgba(247, 147, 30, 0.13);
+    --ok: #34D399; --ok-fundo: rgba(52, 211, 153, 0.13);
+    --alerta: #FB7185; --alerta-fundo: rgba(251, 113, 133, 0.13);
+    --aviso: #FBBF24; --aviso-fundo: rgba(251, 191, 36, 0.13);
+    --info: #60A5FA; --info-fundo: rgba(96, 165, 250, 0.13);
+    --neutro-fundo: var(--rz-azul-700);
+    --sombra: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 12px 32px -18px rgba(0, 0, 0, 0.7);
+    --sombra-g: 0 24px 70px -20px rgba(0, 0, 0, 0.8);
+    --veu: rgba(2, 4, 9, 0.7);
+    --graf-2: #60A5FA; --graf-3: #2DD4BF; --graf-4: #FFB35A; --graf-5: #A78BFA; --graf-6: #94A3B8;
+    --graf-grade: rgba(148, 163, 184, 0.12);
+  }
+}
+
+/* ---------- Botão padrão de alternar tema ---------- */
+.rz-tema-btn {
+  width: 38px; height: 38px; flex: none;
+  display: inline-grid; place-items: center;
+  border-radius: 999px; border: 1px solid var(--linha-forte);
+  background: transparent; color: var(--texto-2); cursor: pointer;
+  transition: color var(--transicao), border-color var(--transicao), background var(--transicao);
+}
+.rz-tema-btn:hover { color: var(--texto); border-color: var(--texto-3); background: var(--sup-3); }
+.rz-tema-btn svg { width: 18px; height: 18px; }
+.rz-tema-btn .lua { display: none; }
+:root[data-theme="escuro"] .rz-tema-btn .sol { display: none; }
+:root[data-theme="escuro"] .rz-tema-btn .lua { display: block; }

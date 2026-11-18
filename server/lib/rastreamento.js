@@ -226,11 +226,11 @@ export function criarRouter() {
       gravarLogin(req, res, { state });
       urlDeLogin({ state, redirectUri }).then((url) => res.redirect(url)).catch((err) => {
         console.error('[frota] login Microsoft:', err?.message || err);
-        res.redirect('/rastreamento?erro=microsoft');
+        res.redirect('/login?erro=microsoft');
       });
     } catch (err) {
       console.error('[frota] login Microsoft:', err?.message || err);
-      res.redirect('/rastreamento?erro=microsoft');
+      res.redirect('/login?erro=microsoft');
     }
   });
 
@@ -238,19 +238,19 @@ export function criarRouter() {
     const pendente = verificar(lerCookie(req, COOKIE_LOGIN));
     apagarLogin(req, res);
 
-    if (req.query.error) return res.redirect('/rastreamento?erro=microsoft_negado');
-    if (!pendente?.state) return res.redirect('/rastreamento?erro=sessao_expirada');
-    if (!req.query.code || req.query.state !== pendente.state) return res.redirect('/rastreamento?erro=microsoft_callback');
+    if (req.query.error) return res.redirect('/login?erro=microsoft_negado');
+    if (!pendente?.state) return res.redirect('/login?erro=sessao_expirada');
+    if (!req.query.code || req.query.state !== pendente.state) return res.redirect('/login?erro=microsoft_callback');
 
     let ms;
     try {
       ms = await trocarCodigo({ code: String(req.query.code), redirectUri: enderecoRetorno(req) });
     } catch (err) {
       console.error('[frota] callback Microsoft:', err?.message || err);
-      return res.redirect('/rastreamento?erro=microsoft_callback');
+      return res.redirect('/login?erro=microsoft_callback');
     }
 
-    if (!ms.email.endsWith(DOMINIO)) return res.redirect('/rastreamento?erro=dominio');
+    if (!ms.email.endsWith(DOMINIO)) return res.redirect('/login?erro=dominio');
 
     // garante que o usuário existe no banco (cria se for 1º acesso)
     try {
@@ -262,11 +262,11 @@ export function criarRouter() {
           headers: { Prefer: 'return=representation' },
         });
       }
-      if (!u?.ativo) return res.redirect('/rastreamento?erro=desativado');
+      if (!u?.ativo) return res.redirect('/login?erro=desativado');
       await sb(`/rest/v1/rast_usuarios?email=eq.${q(ms.email)}`, { method: 'PATCH', body: { nome: ms.nome, ultimo_acesso: new Date().toISOString() } });
     } catch (err) {
       console.error('[frota] salvar usuário:', err?.message || err);
-      return res.redirect('/rastreamento?erro=banco');
+      return res.redirect('/login?erro=banco');
     }
 
     gravarSessao(req, res, { e: ms.email, n: ms.nome });

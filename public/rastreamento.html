@@ -74,17 +74,10 @@
   .rules .link{ margin-left:auto; background:none; border:0; color:var(--text-secondary); cursor:pointer; font:inherit; padding:0; }
   .rules .link:hover{ color:var(--accent); }
 
-  /* login */
-  .login-wrap{ min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px 16px; }
-  .login{ width:100%; max-width:400px; display:flex; flex-direction:column; gap:16px; }
-  .login .brand{ justify-content:center; text-align:left; }
-  .login form{ display:flex; flex-direction:column; gap:12px; }
-  label.f{ display:flex; flex-direction:column; gap:6px; font-size:13px; color:var(--text-secondary); font-weight:600; }
   input.in, select.in{
-    background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border); border-radius:9px;
+    background:var(--input-bg); color:var(--text-primary); border:1px solid var(--border); border-radius:9px;
     padding:9px 11px; font:inherit; font-size:14.5px; min-width:0;
   }
-  input.in, select.in{ background:var(--input-bg); }
   input.in:focus, select.in:focus{ outline:2px solid var(--accent); outline-offset:-1px; border-color:transparent; }
   .msg{ border-radius:10px; padding:11px 14px; font-size:13.5px; }
   .msg.err{ border:1px solid var(--err-bd); background:var(--err-bg); color:var(--err-fg); }
@@ -218,25 +211,6 @@
 </style>
 </head>
 <body>
-
-<!-- LOGIN -->
-<div class="login-wrap" id="telaLogin" hidden>
-  <div class="login">
-    <div class="brand">
-      <img class="logo" src="/logo-rezende.png" alt="Rezende Energia">
-      <div><h1>Rastreamento da frota</h1><div class="sub">Acesso restrito · Rezende Energia</div></div>
-    </div>
-    <div class="card" style="text-align:center;padding:28px 24px;display:flex;flex-direction:column;gap:16px;align-items:center">
-      <p style="margin:0;color:var(--text-secondary);font-size:14px">Use sua conta corporativa Rezende para entrar.</p>
-      <div class="msg err" id="loginErro" hidden></div>
-      <a class="btn primary" id="btnMicrosoft" href="/api/rast/microsoft" style="text-decoration:none;justify-content:center;gap:10px;font-size:15px;padding:12px 28px">
-        <svg width="20" height="20" viewBox="0 0 21 21" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="1" width="9" height="9" fill="#F25022"/><rect x="11" y="1" width="9" height="9" fill="#7FBA00"/><rect x="1" y="11" width="9" height="9" fill="#00A4EF"/><rect x="11" y="11" width="9" height="9" fill="#FFB900"/></svg>
-        Entrar com Microsoft
-      </a>
-    </div>
-    <div style="text-align:center"><button class="pill theme-btn" type="button" data-tema>🌙 Noturno</button></div>
-  </div>
-</div>
 
 <!-- APP -->
 <div class="shell" id="telaApp" hidden>

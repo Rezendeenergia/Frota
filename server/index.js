@@ -122,6 +122,11 @@ app.get('/api/painel', async (req, res) => {
 
 app.use(express.static(PUBLIC_DIR));
 
+// Tela de login do rastreamento (padrão Rezende).
+app.get('/login', (req, res) => {
+  res.sendFile(path.join(PUBLIC_DIR, 'login.html'));
+});
+
 // Análises do rastreamento (fora de horário + motor ligado parado), com histórico.
 app.get('/rastreamento', (req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, 'rastreamento.html'));

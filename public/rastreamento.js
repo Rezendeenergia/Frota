@@ -52,6 +52,12 @@ async function copiarOuEmail(txt) {
   }
 }
 
+// ======================= navegação / login =======================
+function irParaLogin(codigoErro) {
+  const url = codigoErro ? `/login?erro=${encodeURIComponent(codigoErro)}` : '/login';
+  window.location.href = url;
+}
+
 // ======================= API =======================
 class ErroApi extends Error {}
 async function api(caminho, { method = 'GET', body } = {}) {
@@ -63,7 +69,7 @@ async function api(caminho, { method = 'GET', body } = {}) {
   });
   let data = null;
   try { data = await res.json(); } catch { /* resposta vazia */ }
-  if (res.status === 401) { mostrarLogin(data?.erro); throw new ErroApi(data?.erro || 'Sessão expirada.'); }
+  if (res.status === 401) { irParaLogin('sessao_expirada'); throw new ErroApi(data?.erro || 'Sessão expirada.'); }
   if (!res.ok) throw new ErroApi(data?.erro || `Erro ${res.status}`);
   return data;
 }
@@ -83,47 +89,16 @@ aplicarTema(document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light'
 // ======================= telas / login =======================
 let usuario = null;
 function mostrarTela(id) {
-  for (const t of ['telaLogin', 'telaApp']) $(t).hidden = t !== id;
+  $('telaApp').hidden = id !== 'telaApp';
 }
 function mostrarLogin(msg) {
-  usuario = null;
-  mostrarTela('telaLogin');
-  const e = $('loginErro');
-  const erros = {
-    dominio: 'Apenas e-mails @rezendeenergia.com.br têm acesso.',
-    sem_acesso: 'Conta sem acesso a este sistema. Peça a um administrador.',
-    desativado: 'Acesso desativado. Fale com o administrador.',
-    microsoft: 'Não foi possível conectar à Microsoft. Tente de novo.',
-    microsoft_negado: 'Login cancelado.',
-    microsoft_callback: 'Erro no retorno do login Microsoft. Tente de novo.',
-    sessao_expirada: 'A sessão expirou. Clique em "Entrar" novamente.',
-    banco: 'Erro interno. Tente de novo; se persistir, avise a TI.',
+  // converte mensagens de API em códigos conhecidos
+  const mapa = {
+    'Sessão expirada. Entre novamente.': 'sessao_expirada',
+    'Acesso desativado.': 'desativado',
   };
-  const texto = erros[msg] || msg;
-  if (texto && texto !== 'Sessão expirada. Entre novamente.') { e.textContent = texto; e.hidden = false; } else e.hidden = true;
+  irParaLogin(mapa[msg] || (msg ? 'sessao_expirada' : null));
 }
-
-// lê ?erro= da URL ao carregar a tela de login
-(function() {
-  const p = new URLSearchParams(window.location.search);
-  const erro = p.get('erro');
-  if (erro) {
-    history.replaceState(null, '', window.location.pathname);
-    const e = $('loginErro');
-    const erros = {
-      dominio: 'Apenas e-mails @rezendeenergia.com.br têm acesso.',
-      sem_acesso: 'Conta sem acesso a este sistema. Peça a um administrador.',
-      desativado: 'Acesso desativado. Fale com o administrador.',
-      microsoft: 'Não foi possível conectar à Microsoft. Tente de novo.',
-      microsoft_negado: 'Login cancelado.',
-      microsoft_callback: 'Erro no retorno do login Microsoft. Tente de novo.',
-      sessao_expirada: 'A sessão expirou. Clique em "Entrar" novamente.',
-      banco: 'Erro interno. Tente de novo; se persistir, avise a TI.',
-    };
-    e.textContent = erros[erro] || `Erro: ${erro}`;
-    e.hidden = false;
-  }
-})();
 
 document.querySelectorAll('[data-sair]').forEach((b) => b.addEventListener('click', async () => {
   try {
@@ -133,7 +108,7 @@ document.querySelectorAll('[data-sair]').forEach((b) => b.addEventListener('clic
     if (d?.redirect) { window.location.href = d.redirect; return; }
   } catch { /* segue */ }
   cache.clear();
-  mostrarLogin();
+  irParaLogin();
 }));
 
 let appIniciado = false;
@@ -1225,13 +1200,8 @@ function renderUsuarios(lista) {
   try {
     const res = await fetch('/api/rast/eu', { credentials: 'same-origin' });
     const data = await res.json().catch(() => ({}));
-    if (res.status === 503) {
-      mostrarTela('telaLogin');
-      $('loginErro').textContent = data.erro || 'Serviço ainda não configurado.';
-      $('loginErro').hidden = false;
-      return;
-    }
-    if (!res.ok) { mostrarLogin(); return; }
+    if (res.status === 503) { irParaLogin('banco'); return; }
+    if (!res.ok) { irParaLogin(); return; }
     entrou(data);
-  } catch { mostrarLogin('Sem conexão com o servidor.'); }
+  } catch { irParaLogin(); }
 })();
