@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Central da Frota — Rezende Energia</title>
+  <link rel="icon" href="/img/favicon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/rezende-tema.css">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --frota-bg-card: var(--rz-superficie, #fff);
+      --frota-borda: var(--rz-borda, #e5e7eb);
+      --frota-laranja: #e87722;
+      --frota-texto: var(--rz-texto, #111);
+      --frota-texto-suave: var(--rz-texto-suave, #6b7280);
+      --frota-verde: #16a34a;
+      --frota-azul: #1d4ed8;
+    }
+
+    html, body { height: 100%; }
+    body {
+      font-family: 'Barlow', sans-serif;
+      background: var(--rz-fundo, #f3f4f6);
+      color: var(--frota-texto);
+      display: flex; flex-direction: column; min-height: 100vh;
+    }
+
+    /* ---- Cabeçalho ---- */
+    .cabecalho {
+      background: var(--frota-bg-card);
+      border-bottom: 1px solid var(--frota-borda);
+      padding: 0 1.5rem;
+      display: flex; align-items: center; gap: 1rem;
+      flex-wrap: wrap;
+    }
+    .cabecalho-logo { height: 32px; padding: .75rem 0; }
+    .logo-escuro { display: none; }
+    [data-rz-tema="escuro"] .logo-claro { display: none; }
+    [data-rz-tema="escuro"] .logo-escuro { display: block; }
+
+    .cabecalho-titulo {
+      font-size: 1rem; font-weight: 700; color: var(--frota-laranja);
+      flex: 1; white-space: nowrap;
+    }
+
+    .cabecalho-usuario {
+      display: flex; align-items: center; gap: .75rem;
+      font-size: .85rem; color: var(--frota-texto-suave);
+    }
+    .cabecalho-usuario strong { color: var(--frota-texto); font-weight: 600; }
+
+    .btn-sair {
+      background: none; border: 1px solid var(--frota-borda);
+      color: var(--frota-texto-suave); border-radius: 6px;
+      padding: .3rem .7rem; font: inherit; font-size: .82rem; cursor: pointer;
+      transition: color .15s, border-color .15s;
+    }
+    .btn-sair:hover { color: #c0392b; border-color: #c0392b; }
+
+    .rz-tema-btn {
+      background: none; border: 1px solid var(--frota-borda);
+      color: var(--frota-texto-suave); border-radius: 6px;
+      padding: .3rem .7rem; font: inherit; font-size: .82rem; cursor: pointer;
+      transition: background .15s;
+    }
+    .rz-tema-btn:hover { background: var(--rz-hover, rgba(0,0,0,.05)); }
+
+    /* ---- Abas ---- */
+    .abas-nav {
+      background: var(--frota-bg-card);
+      border-bottom: 1px solid var(--frota-borda);
+      padding: 0 1.5rem;
+      display: flex; gap: 0; overflow-x: auto;
+    }
+    .aba-btn {
+      background: none; border: none; cursor: pointer;
+      font: 600 .9rem/1 'Barlow', sans-serif;
+      color: var(--frota-texto-suave);
+      padding: .9rem 1.1rem; border-bottom: 3px solid transparent;
+      white-space: nowrap; transition: color .15s, border-color .15s;
+    }
+    .aba-btn:hover { color: var(--frota-laranja); }
+    .aba-btn.ativa { color: var(--frota-laranja); border-bottom-color: var(--frota-laranja); }
+
+    /* ---- Conteúdo ---- */
+    .conteudo { flex: 1; padding: 1.5rem; max-width: 1200px; width: 100%; margin: 0 auto; }
+
+    /* ---- Carregando / erro global ---- */
+    .estado-global {
+      display: flex; align-items: center; justify-content: center;
+      gap: .75rem; padding: 3rem 1rem;
+      font-size: 1rem; color: var(--frota-texto-suave);
+    }
+    .spinner {
+      width: 22px; height: 22px; border-radius: 50%;
+      border: 3px solid var(--frota-borda);
+      border-top-color: var(--frota-laranja);
+      animation: giro .7s linear infinite; flex-shrink: 0;
+    }
+    @keyframes giro { to { transform: rotate(360deg); } }
+
+    /* ---- Cards de indicadores ---- */
+    .indicadores-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 1rem; margin-bottom: 1.5rem;
+    }
+    .ind-card {
+      background: var(--frota-bg-card);
+      border: 1px solid var(--frota-borda);
+      border-radius: 12px; padding: 1.1rem 1.2rem;
+    }
+    .ind-label {
+      font-size: .78rem; font-weight: 600; letter-spacing: .05em;
+      text-transform: uppercase; color: var(--frota-texto-suave);
+      margin-bottom: .4rem;
+    }
+    .ind-valor {
+      font-size: 1.9rem; font-weight: 700; line-height: 1;
+      color: var(--frota-texto);
+    }
+    .ind-valor.laranja { color: var(--frota-laranja); }
+    .ind-valor.verde   { color: var(--frota-verde); }
+    .ind-detalhe {
+      font-size: .8rem; color: var(--frota-texto-suave); margin-top: .3rem;
+    }
+
+    /* ---- Seção com título ---- */
+    .secao { margin-bottom: 1.75rem; }
+    .secao-titulo {
+      font-size: 1rem; font-weight: 700; margin-bottom: .9rem;
+      color: var(--frota-texto);
+      display: flex; align-items: center; gap: .5rem;
+    }
+    .secao-titulo::after {
+      content: ''; flex: 1; height: 1px; background: var(--frota-borda);
+    }
+
+    /* ---- Tabela de veículos ---- */
+    .tabela-wrap { overflow-x: auto; border-radius: 10px; border: 1px solid var(--frota-borda); }
+    table {
+      width: 100%; border-collapse: collapse;
+      font-size: .88rem;
+    }
+    thead th {
+      background: var(--rz-superficie2, #f9fafb);
+      font-weight: 700; text-align: left;
+      padding: .65rem .85rem;
+      border-bottom: 1px solid var(--frota-borda);
+      white-space: nowrap; color: var(--frota-texto-suave);
+      font-size: .78rem; letter-spacing: .04em; text-transform: uppercase;
+    }
+    tbody tr { border-bottom: 1px solid var(--frota-borda); }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: var(--rz-hover, rgba(0,0,0,.025)); }
+    tbody td { padding: .6rem .85rem; }
+
+    /* ---- Chips (tipo de veículo) ---- */
+    .chip {
+      display: inline-block;
+      background: var(--rz-superficie2, #f3f4f6);
+      border-radius: 20px; padding: .15rem .6rem;
+      font-size: .78rem; font-weight: 600; white-space: nowrap;
+      color: var(--frota-texto-suave);
+    }
+
+    /* ---- Abastecimento ---- */
+    .periodo-sel {
+      display: flex; gap: .4rem; flex-wrap: wrap; margin-bottom: 1rem;
+    }
+    .periodo-btn {
+      background: var(--frota-bg-card); border: 1px solid var(--frota-borda);
+      color: var(--frota-texto-suave); border-radius: 6px;
+      padding: .3rem .75rem; font: 600 .82rem 'Barlow', sans-serif;
+      cursor: pointer; transition: all .15s;
+    }
+    .periodo-btn:hover { border-color: var(--frota-laranja); color: var(--frota-laranja); }
+    .periodo-btn.ativo { background: var(--frota-laranja); border-color: var(--frota-laranja); color: #fff; }
+
+    .abast-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+
+    /* ---- Aba rastreamento ---- */
+    .rast-promo {
+      background: var(--frota-bg-card); border: 1px solid var(--frota-borda);
+      border-radius: 12px; padding: 2rem 1.75rem;
+      display: flex; flex-direction: column; gap: 1.1rem; max-width: 520px;
+    }
+    .rast-promo h2 { font-size: 1.3rem; font-weight: 700; }
+    .rast-promo p { font-size: .92rem; color: var(--frota-texto-suave); line-height: 1.6; }
+    .rast-promo ul { font-size: .88rem; color: var(--frota-texto-suave); line-height: 2; padding-left: 1.2rem; }
+    .btn-primario {
+      display: inline-flex; align-items: center; gap: .5rem;
+      background: var(--frota-laranja); color: #fff;
+      padding: .7rem 1.3rem; border-radius: 8px;
+      font: 600 .95rem 'Barlow', sans-serif; text-decoration: none;
+      transition: background .15s;
+    }
+    .btn-primario:hover { background: #d06218; }
+
+    /* ---- Aviso de erro de fonte ---- */
+    .aviso-erro {
+      background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px;
+      padding: .75rem 1rem; font-size: .85rem; color: #92400e;
+      margin-bottom: 1rem;
+    }
+    [data-rz-tema="escuro"] .aviso-erro {
+      background: rgba(146,64,14,.15); border-color: rgba(252,211,77,.3); color: #fcd34d;
+    }
+
+    /* ---- Grupos por tipo (barras) ---- */
+    .grupo-lista { display: flex; flex-direction: column; gap: .5rem; }
+    .grupo-item { display: flex; align-items: center; gap: .75rem; font-size: .88rem; }
+    .grupo-nome { width: 180px; flex-shrink: 0; color: var(--frota-texto); }
+    .grupo-barra-wrap { flex: 1; height: 8px; background: var(--frota-borda); border-radius: 4px; overflow: hidden; }
+    .grupo-barra { height: 100%; background: var(--frota-laranja); border-radius: 4px; transition: width .4s; }
+    .grupo-qtd { width: 32px; text-align: right; font-weight: 700; color: var(--frota-texto); }
+
+    @media (max-width: 600px) {
+      .cabecalho { gap: .5rem; padding: 0 1rem; }
+      .conteudo { padding: 1rem; }
+      .abas-nav { padding: 0 1rem; }
+      .grupo-nome { width: 120px; font-size: .82rem; }
+    }
+  </style>
+</head>
+<body>
+  <!-- Cabeçalho -->
+  <header class="cabecalho">
+    <img class="cabecalho-logo logo-claro" src="/img/logo-rezende.png" alt="Rezende Energia">
+    <img class="cabecalho-logo logo-escuro" src="/img/logo-rezende-branca.png" alt="Rezende Energia">
+    <span class="cabecalho-titulo">Central da Frota</span>
+    <div class="cabecalho-usuario">
+      <strong id="nomeUsuario">—</strong>
+      <button class="rz-tema-btn" data-rz-tema aria-label="Alternar tema">🌙</button>
+      <button class="btn-sair" id="btnSair">Sair</button>
+    </div>
+  </header>
+
+  <!-- Abas -->
+  <nav class="abas-nav" role="tablist">
+    <button class="aba-btn ativa" data-aba="indicadores" role="tab" aria-selected="true">Indicadores</button>
+    <button class="aba-btn" data-aba="locacao" role="tab" aria-selected="false">Locação</button>
+    <button class="aba-btn" data-aba="abastecimento" role="tab" aria-selected="false">Abastecimento</button>
+    <button class="aba-btn" data-aba="rastreamento" role="tab" aria-selected="false">Rastreamento</button>
+  </nav>
+
+  <!-- Conteúdo -->
+  <main class="conteudo" id="conteudo">
+    <div class="estado-global" id="carregando">
+      <span class="spinner"></span> Carregando dados da frota…
+    </div>
+  </main>
+
+  <script src="/js/rezende-tema.js"></script>
+  <script src="/frota.js"></script>
+</body>
+</html>
