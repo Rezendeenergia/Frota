@@ -1,4 +1,4 @@
-// API do histórico de rastreamento (/rastreamento): login próprio, importação
+// API do histórico de rastreamento (/rastreamento): login Microsoft, importação
 // das planilhas do rastreador, consulta por período, evidências e usuários.
 //
 // Todo acesso ao Supabase (projeto Abast) é feito AQUI, com a chave de serviço
@@ -9,22 +9,55 @@
 //   RAST_SUPABASE_URL          (padrão: projeto Abast)
 //   RAST_SUPABASE_SERVICE_KEY  chave service_role / sb_secret_… do projeto Abast  [obrigatória]
 //   RAST_SESSION_SECRET        texto aleatório longo para assinar a sessão        [obrigatória]
-//   RAST_ADMIN_EMAIL           e-mail do 1º administrador (padrão ti@rezendeenergia.com.br)
-//   RAST_ADMIN_SENHA_INICIAL   senha do 1º acesso desse administrador (trocada no 1º login)
+//   RAST_REDIRECT_URI          URL de retorno do Azure (padrão: montado pelo host)
+//   SHAREPOINT_CLIENT_ID / SHAREPOINT_CLIENT_SECRET / SHAREPOINT_TENANT_ID  (já usadas pelo painel)
 
 import express from 'express';
 import crypto from 'node:crypto';
+import { ConfidentialClientApplication } from '@azure/msal-node';
 
 const SB_URL = (process.env.RAST_SUPABASE_URL || 'https://horvznvaytzhwrmwjwxv.supabase.co').replace(/\/$/, '');
 const SB_KEY = process.env.RAST_SUPABASE_SERVICE_KEY || '';
 const SESSION_SECRET = process.env.RAST_SESSION_SECRET || '';
-const ADMIN_EMAIL = (process.env.RAST_ADMIN_EMAIL || 'ti@rezendeenergia.com.br').trim().toLowerCase();
-const ADMIN_SENHA_INICIAL = process.env.RAST_ADMIN_SENHA_INICIAL || '';
 const BUCKET = 'rast-evidencias';
 const COOKIE = 'rast_sess';
+const COOKIE_LOGIN = 'rast_login'; // estado temporário da ida à Microsoft
 const SESSAO_HORAS = 12;
+const DOMINIO = '@rezendeenergia.com.br';
 
 export const configurado = () => Boolean(SB_KEY && SESSION_SECRET);
+
+// ---------------- login Microsoft ----------------
+function env(...nomes) {
+  for (const n of nomes) if (process.env[n]) return process.env[n];
+  return '';
+}
+let _msal = null;
+function msal() {
+  if (_msal) return _msal;
+  const clientId     = env('SHAREPOINT_CLIENT_ID');
+  const clientSecret = env('SHAREPOINT_CLIENT_SECRET');
+  const tenant       = env('SHAREPOINT_TENANT_ID');
+  if (!clientId || !clientSecret || !tenant) throw new Error('Login Microsoft: defina SHAREPOINT_CLIENT_ID, SHAREPOINT_CLIENT_SECRET e SHAREPOINT_TENANT_ID.');
+  _msal = new ConfidentialClientApplication({
+    auth: { clientId, clientSecret, authority: `https://login.microsoftonline.com/${tenant}` },
+  });
+  return _msal;
+}
+const ESCOPOS_MS = ['openid', 'profile', 'email'];
+function enderecoRetorno(req) {
+  if (process.env.RAST_REDIRECT_URI) return process.env.RAST_REDIRECT_URI;
+  return `${req.protocol}://${req.get('host')}/api/rast/auth/callback`;
+}
+async function urlDeLogin(opts) {
+  return msal().getAuthCodeUrl({ scopes: ESCOPOS_MS, ...opts, prompt: 'select_account' });
+}
+async function trocarCodigo(opts) {
+  const r = await msal().acquireTokenByCode({ scopes: ESCOPOS_MS, ...opts });
+  const c = r?.idTokenClaims || {};
+  const email = String(c.preferred_username || c.email || c.upn || '').trim().toLowerCase();
+  return { email, nome: c.name || email };
+}
 
 // ---------------- Supabase (REST) ----------------
 // Permite trocar o fetch nos testes.
@@ -72,21 +105,7 @@ async function sbTodos(pathBase) {
   return todos;
 }
 
-// ---------------- senha e sessão ----------------
-function hashSenha(senha) {
-  const salt = crypto.randomBytes(16);
-  const hash = crypto.scryptSync(senha, salt, 64);
-  return `scrypt$${salt.toString('base64')}$${hash.toString('base64')}`;
-}
-function conferirSenha(senha, armazenado) {
-  if (!armazenado || !armazenado.startsWith('scrypt$')) return false;
-  const [, saltB64, hashB64] = armazenado.split('$');
-  const esperado = Buffer.from(hashB64, 'base64');
-  const calc = crypto.scryptSync(senha, Buffer.from(saltB64, 'base64'), esperado.length);
-  return crypto.timingSafeEqual(esperado, calc);
-}
-const senhaValida = (s) => typeof s === 'string' && s.length >= 8 && s.length <= 200;
-
+// ---------------- sessão ----------------
 const b64u = (buf) => Buffer.from(buf).toString('base64url');
 function assinar(payload) {
   const corpo = b64u(JSON.stringify(payload));
@@ -109,30 +128,21 @@ function lerCookie(req, nome) {
   const m = (req.headers.cookie || '').split(';').map((s) => s.trim()).find((s) => s.startsWith(`${nome}=`));
   return m ? decodeURIComponent(m.slice(nome.length + 1)) : null;
 }
-function gravarCookie(req, res, valor, maxAgeSeg) {
+function setCookie(req, res, nome, valor, maxAgeSeg) {
   const seguro = req.secure || req.headers['x-forwarded-proto'] === 'https';
-  res.setHeader('Set-Cookie', `${COOKIE}=${encodeURIComponent(valor)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeg}${seguro ? '; Secure' : ''}`);
+  res.setHeader('Set-Cookie', `${nome}=${encodeURIComponent(valor)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeg}${seguro ? '; Secure' : ''}`);
 }
-
-// ---------------- limite de tentativas de login ----------------
-const tentativas = new Map(); // chave -> { falhas, ate }
-function bloqueado(chave) {
-  const t = tentativas.get(chave);
-  return t && t.ate > Date.now();
-}
-function registrarFalha(chave) {
-  const t = tentativas.get(chave) || { falhas: 0, ate: 0 };
-  t.falhas += 1;
-  if (t.falhas >= 8) { t.ate = Date.now() + 15 * 60 * 1000; t.falhas = 0; }
-  tentativas.set(chave, t);
-}
+const gravarSessao = (req, res, dados) => setCookie(req, res, COOKIE, assinar({ ...dados, exp: Date.now() + SESSAO_HORAS * 3600 * 1000 }), SESSAO_HORAS * 3600);
+const gravarLogin  = (req, res, dados) => setCookie(req, res, COOKIE_LOGIN, assinar({ ...dados, exp: Date.now() + 10 * 60 * 1000 }), 600);
+const apagarSessao = (req, res) => setCookie(req, res, COOKIE, '', 0);
+const apagarLogin  = (req, res) => setCookie(req, res, COOKIE_LOGIN, '', 0);
 
 // ---------------- usuários ----------------
 async function buscarUsuario(email) {
   const r = await sb(`/rest/v1/rast_usuarios?email=eq.${q(email)}&select=*`);
   return r[0] || null;
 }
-const publico = (u) => ({ email: u.email, nome: u.nome, papel: u.papel, trocarSenha: u.trocar_senha });
+const publico = (u) => ({ email: u.email, nome: u.nome, papel: u.papel });
 
 // ---------------- validação dos registros importados ----------------
 const RE_TS = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
@@ -173,12 +183,17 @@ async function autenticar(req, res, next) {
   const s = verificar(lerCookie(req, COOKIE));
   if (!s) return res.status(401).json({ erro: 'Sessão expirada. Entre novamente.' });
   try {
-    const u = await buscarUsuario(s.e);
+    let u = await buscarUsuario(s.e);
+    if (!u) {
+      // 1º acesso — cria o usuário automaticamente como operador
+      [u] = await sb('/rest/v1/rast_usuarios', {
+        method: 'POST',
+        body: { email: s.e, nome: s.n || s.e, papel: 'operador', ativo: true, criado_por: 'microsoft' },
+        headers: { Prefer: 'return=representation' },
+      });
+    }
     if (!u || !u.ativo) return res.status(401).json({ erro: 'Acesso desativado.' });
     req.usuario = u;
-    if (u.trocar_senha && !['/senha', '/eu', '/logout'].includes(req.path)) {
-      return res.status(403).json({ erro: 'Troque a senha temporária para continuar.', trocarSenha: true });
-    }
     next();
   } catch (err) {
     console.error('[frota] sessão:', err?.message || err);
@@ -203,40 +218,71 @@ export function criarRouter() {
   const exigirLogin = autenticar;
   const exigirAdmin = soAdmin;
 
-  r.post('/login', h(async (req, res) => {
-    const email = String(req.body?.email || '').trim().toLowerCase();
-    const senha = String(req.body?.senha || '');
-    const chave = `${req.ip}|${email}`;
-    if (bloqueado(chave)) return res.status(429).json({ erro: 'Muitas tentativas. Aguarde 15 minutos.' });
-
-    let u = email ? await buscarUsuario(email) : null;
-
-    // 1º acesso do administrador (senha inicial definida no Render)
-    if (!u && email === ADMIN_EMAIL && ADMIN_SENHA_INICIAL && senha === ADMIN_SENHA_INICIAL) {
-      const novo = { email, nome: 'TI', papel: 'admin', senha_hash: hashSenha(senha), trocar_senha: true, ativo: true, criado_por: 'bootstrap' };
-      [u] = await sb('/rest/v1/rast_usuarios', { method: 'POST', body: novo, headers: { Prefer: 'return=representation' } });
-    } else if (!u || !u.ativo || !conferirSenha(senha, u.senha_hash)) {
-      registrarFalha(chave);
-      return res.status(401).json({ erro: 'E-mail ou senha inválidos.' });
+  // ---- login Microsoft ----
+  r.get('/microsoft', (req, res) => {
+    try {
+      const state = crypto.randomBytes(16).toString('hex');
+      const redirectUri = enderecoRetorno(req);
+      gravarLogin(req, res, { state });
+      urlDeLogin({ state, redirectUri }).then((url) => res.redirect(url)).catch((err) => {
+        console.error('[frota] login Microsoft:', err?.message || err);
+        res.redirect('/login?erro=microsoft');
+      });
+    } catch (err) {
+      console.error('[frota] login Microsoft:', err?.message || err);
+      res.redirect('/login?erro=microsoft');
     }
-    tentativas.delete(chave);
-    await sb(`/rest/v1/rast_usuarios?email=eq.${q(u.email)}`, { method: 'PATCH', body: { ultimo_acesso: new Date().toISOString() } });
-    gravarCookie(req, res, assinar({ e: u.email, exp: Date.now() + SESSAO_HORAS * 3600 * 1000 }), SESSAO_HORAS * 3600);
-    res.json(publico(u));
-  }));
+  });
 
-  r.post('/logout', (req, res) => { gravarCookie(req, res, '', 0); res.json({ ok: true }); });
+  r.get('/auth/callback', async (req, res) => {
+    const pendente = verificar(lerCookie(req, COOKIE_LOGIN));
+    apagarLogin(req, res);
+
+    if (req.query.error) return res.redirect('/login?erro=microsoft_negado');
+    if (!pendente?.state) return res.redirect('/login?erro=sessao_expirada');
+    if (!req.query.code || req.query.state !== pendente.state) return res.redirect('/login?erro=microsoft_callback');
+
+    let ms;
+    try {
+      ms = await trocarCodigo({ code: String(req.query.code), redirectUri: enderecoRetorno(req) });
+    } catch (err) {
+      console.error('[frota] callback Microsoft:', err?.message || err);
+      return res.redirect('/login?erro=microsoft_callback');
+    }
+
+    if (!ms.email.endsWith(DOMINIO)) return res.redirect('/login?erro=dominio');
+
+    // garante que o usuário existe no banco (cria se for 1º acesso)
+    try {
+      let u = await buscarUsuario(ms.email);
+      if (!u) {
+        [u] = await sb('/rest/v1/rast_usuarios', {
+          method: 'POST',
+          body: { email: ms.email, nome: ms.nome, papel: 'operador', ativo: true, criado_por: 'microsoft' },
+          headers: { Prefer: 'return=representation' },
+        });
+      }
+      if (!u?.ativo) return res.redirect('/login?erro=desativado');
+      await sb(`/rest/v1/rast_usuarios?email=eq.${q(ms.email)}`, { method: 'PATCH', body: { nome: ms.nome, ultimo_acesso: new Date().toISOString() } });
+    } catch (err) {
+      console.error('[frota] salvar usuário:', err?.message || err);
+      return res.redirect('/login?erro=banco');
+    }
+
+    gravarSessao(req, res, { e: ms.email, n: ms.nome });
+    console.log(`[frota] entrou: ${ms.email}`);
+    res.redirect('/rastreamento');
+  });
+
+  r.post('/logout', (req, res) => {
+    apagarSessao(req, res);
+    const tenant = env('SHAREPOINT_TENANT_ID');
+    const volta = encodeURIComponent(`${req.protocol}://${req.get('host')}/rastreamento`);
+    if (tenant) return res.json({ redirect: `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/logout?post_logout_redirect_uri=${volta}` });
+    res.json({ ok: true });
+  });
 
   r.get('/eu', exigirLogin, (req, res) => res.json(publico(req.usuario)));
-
-  r.post('/senha', exigirLogin, h(async (req, res) => {
-    const { atual, nova } = req.body || {};
-    if (!conferirSenha(String(atual || ''), req.usuario.senha_hash)) return res.status(400).json({ erro: 'Senha atual incorreta.' });
-    if (!senhaValida(nova)) return res.status(400).json({ erro: 'A nova senha precisa ter pelo menos 8 caracteres.' });
-    if (nova === atual) return res.status(400).json({ erro: 'A nova senha precisa ser diferente da atual.' });
-    await sb(`/rest/v1/rast_usuarios?email=eq.${q(req.usuario.email)}`, { method: 'PATCH', body: { senha_hash: hashSenha(nova), trocar_senha: false } });
-    res.json({ ok: true });
-  }));
 
   // ---- importação ----
   r.post('/importar', exigirLogin, h(async (req, res) => {
@@ -356,34 +402,28 @@ export function criarRouter() {
 
   // ---- usuários (admin) ----
   r.get('/usuarios', exigirLogin, exigirAdmin, h(async (req, res) => {
-    res.json(await sb('/rest/v1/rast_usuarios?select=email,nome,papel,ativo,trocar_senha,criado_em,criado_por,ultimo_acesso&order=nome.asc'));
+    res.json(await sb('/rest/v1/rast_usuarios?select=email,nome,papel,ativo,criado_em,criado_por,ultimo_acesso&order=nome.asc'));
   }));
   r.post('/usuarios', exigirLogin, exigirAdmin, h(async (req, res) => {
     const email = String(req.body?.email || '').trim().toLowerCase();
-    const nome = txt(req.body?.nome, 120).trim();
-    const papel = req.body?.papel === 'admin' ? 'admin' : 'usuario';
-    const senha = String(req.body?.senha || '');
+    const nome  = txt(req.body?.nome, 120).trim();
+    const papel = req.body?.papel === 'admin' ? 'admin' : 'operador';
+    if (!email.endsWith(DOMINIO)) return res.status(400).json({ erro: `Apenas e-mails ${DOMINIO}.` });
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ erro: 'E-mail inválido.' });
-    if (!senhaValida(senha)) return res.status(400).json({ erro: 'Senha temporária precisa ter pelo menos 8 caracteres.' });
     if (await buscarUsuario(email)) return res.status(400).json({ erro: 'Esse e-mail já tem acesso.' });
-    await sb('/rest/v1/rast_usuarios', { method: 'POST', body: { email, nome, papel, senha_hash: hashSenha(senha), trocar_senha: true, ativo: true, criado_por: req.usuario.email } });
+    await sb('/rest/v1/rast_usuarios', { method: 'POST', body: { email, nome, papel, ativo: true, criado_por: req.usuario.email } });
     res.json({ ok: true });
   }));
   r.patch('/usuarios/:email', exigirLogin, exigirAdmin, h(async (req, res) => {
     const email = String(req.params.email || '').toLowerCase();
-    const alvo = await buscarUsuario(email);
+    const alvo  = await buscarUsuario(email);
     if (!alvo) return res.status(404).json({ erro: 'Usuário não encontrado.' });
     const mud = {};
     if (typeof req.body?.ativo === 'boolean') {
       if (email === req.usuario.email && !req.body.ativo) return res.status(400).json({ erro: 'Você não pode desativar o próprio acesso.' });
       mud.ativo = req.body.ativo;
     }
-    if (req.body?.papel && email !== req.usuario.email) mud.papel = req.body.papel === 'admin' ? 'admin' : 'usuario';
-    if (req.body?.novaSenha !== undefined) {
-      if (!senhaValida(req.body.novaSenha)) return res.status(400).json({ erro: 'Senha temporária precisa ter pelo menos 8 caracteres.' });
-      mud.senha_hash = hashSenha(req.body.novaSenha);
-      mud.trocar_senha = true;
-    }
+    if (req.body?.papel && email !== req.usuario.email) mud.papel = req.body.papel === 'admin' ? 'admin' : 'operador';
     if (!Object.keys(mud).length) return res.status(400).json({ erro: 'Nada para alterar.' });
     await sb(`/rest/v1/rast_usuarios?email=eq.${q(email)}`, { method: 'PATCH', body: mud });
     res.json({ ok: true });
