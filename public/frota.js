@@ -103,8 +103,8 @@ function mostrarErroGlobal(msg) {
   document.getElementById('conteudo').innerHTML =
     `<div class="estado-global" style="flex-direction:column;gap:.5rem;">
        <span style="font-size:1.5rem">⚠️</span>
-       <span style="color:var(--frota-texto)">${esc(msg)}</span>
-       <button onclick="carregarDados(true)" style="margin-top:.5rem;padding:.4rem 1rem;border-radius:6px;border:1px solid var(--frota-borda);background:var(--frota-bg-card);cursor:pointer;font:600 .9rem Barlow,sans-serif;color:var(--frota-laranja);">Tentar novamente</button>
+       <span style="color:var(--texto)">${esc(msg)}</span>
+       <button onclick="carregarDados(true)" style="margin-top:.5rem;padding:.4rem 1rem;border-radius:6px;border:1px solid var(--linha-forte);background:var(--sup);cursor:pointer;font:600 .9rem var(--f-texto);color:var(--laranja-texto);">Tentar novamente</button>
      </div>`;
 }
 
@@ -240,8 +240,8 @@ function htmlLocacao(d) {
     ${aviso}
     <div class="secao">
       <h3 class="secao-titulo">Veículos locados (${veiculos.length})</h3>
-      <div style="font-size:.88rem;color:var(--frota-texto-suave);margin-bottom:.9rem">
-        Total mensal: <strong style="color:var(--frota-laranja)">${moeda(loc.custoTotal)}</strong>
+      <div style="font-size:.88rem;color:var(--texto-2);margin-bottom:.9rem">
+        Total mensal: <strong style="color:var(--laranja-texto)">${moeda(loc.custoTotal)}</strong>
       </div>
       <div class="tabela-wrap">
         <table>
