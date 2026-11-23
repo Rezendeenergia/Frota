@@ -158,7 +158,7 @@ function manutMesclar(existentes, novos) {
 }
 
 let _manutDados = manutCarregarStorage();  // dados de manutenção (persistidos no navegador)
-let _manutFiltros = { tipo: '', contrato: '', modelo: '', cat: '' };
+let _manutFiltros = { tipo: '', modelo: '', cat: '' };
 let _manutBusca = '';
 let _manutSortCol = 'data'; let _manutSortDir = 1;
 let _manutPagina = 1;
@@ -501,9 +501,8 @@ function configurarPeriodo() {
 function manutFiltrados() {
   if (!_manutDados) return [];
   return _manutDados.filter((r) => {
-    if (_manutFiltros.tipo     && r.tipo      !== _manutFiltros.tipo)      return false;
-    if (_manutFiltros.contrato && r.contrato  !== _manutFiltros.contrato)  return false;
-    if (_manutFiltros.modelo   && r.modelo    !== _manutFiltros.modelo)    return false;
+    if (_manutFiltros.tipo   && r.tipo   !== _manutFiltros.tipo)   return false;
+    if (_manutFiltros.modelo && r.modelo !== _manutFiltros.modelo) return false;
     if (_manutFiltros.cat      && r.cat       !== _manutFiltros.cat)       return false;
     return true;
   });
@@ -573,10 +572,6 @@ function htmlManutencaoShell() {
           <option value="CORRETIVA">Corretiva</option>
           <option value="PREVENTIVA">Preventiva</option>
         </select>
-      </div>
-      <div class="manut-filtro-grupo">
-        <span class="manut-filtro-label">Contrato</span>
-        <select class="manut-sel" id="mf-contrato"><option value="">Todos</option></select>
       </div>
       <div class="manut-filtro-grupo">
         <span class="manut-filtro-label">Modelo</span>
@@ -708,7 +703,6 @@ function popularSelectsManut() {
     vals.forEach((v) => { const o = document.createElement('option'); o.value = v; o.textContent = v; el.appendChild(o); });
     el.value = val;
   };
-  preencherSel('mf-contrato',      uniq('contrato'));
   preencherSel('mf-modelo',        uniq('modelo'));
   preencherSel('mf-cat',           uniq('cat'));
   preencherSel('mf-placa-detalhe', uniq('placa'));
@@ -867,7 +861,7 @@ function renderManutencao() {
 
 function configurarManutencao() {
   // Filtros
-  ['mf-tipo', 'mf-contrato', 'mf-modelo', 'mf-cat'].forEach((id) => {
+  ['mf-tipo', 'mf-modelo', 'mf-cat'].forEach((id) => {
     const el = document.getElementById(id);
     if (!el) return;
     el.value = _manutFiltros[id.replace('mf-', '')] || '';
@@ -878,9 +872,9 @@ function configurarManutencao() {
   });
 
   document.getElementById('mbtn-limpar')?.addEventListener('click', () => {
-    _manutFiltros = { tipo: '', contrato: '', modelo: '', cat: '' };
+    _manutFiltros = { tipo: '', modelo: '', cat: '' };
     _manutBusca = '';
-    ['mf-tipo', 'mf-contrato', 'mf-modelo', 'mf-cat'].forEach((id) => {
+    ['mf-tipo', 'mf-modelo', 'mf-cat'].forEach((id) => {
       const el = document.getElementById(id);
       if (el) el.value = '';
     });
