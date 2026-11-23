@@ -233,7 +233,7 @@ function manutCarregarCache() {
 // Se o servidor estiver vazio mas o cache local tiver dados, sincroniza automaticamente.
 async function manutCarregarServidor() {
   try {
-    const resp = await api('/frota/manut');
+    const resp = await api('/manut');
     const dados = resp.registros || [];
 
     // Servidor vazio mas cache local tem dados → sincroniza (migração ou reimportação necessária)
@@ -245,7 +245,7 @@ async function manutCarregarServidor() {
           await manutEnviarServidor(cacheLocal);
           console.info('[manut] sincronização automática concluída');
           // Busca novamente para confirmar
-          const resp2 = await api('/frota/manut');
+          const resp2 = await api('/manut');
           const confirmado = resp2.registros || [];
           _manutDados = confirmado;
           manutSalvarCache(confirmado);
@@ -270,7 +270,7 @@ async function manutCarregarServidor() {
 
 // Envia novos registros ao servidor; retorna { adicionados, total }
 async function manutEnviarServidor(novosRegistros) {
-  const resp = await api('/frota/manut', {
+  const resp = await api('/manut', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ registros: novosRegistros }),
@@ -1488,7 +1488,7 @@ function configurarManutencao() {
       if (status) status.textContent = 'Verificando dados no servidor…';
       let noServidor = [];
       try {
-        const respSrv = await api('/frota/manut');
+        const respSrv = await api('/manut');
         noServidor = respSrv.registros || [];
       } catch (_) { /* usa array vazio se falhar */ }
 
@@ -1537,7 +1537,7 @@ function configurarManutencao() {
     const status = document.getElementById('manut-csv-status');
     if (status) status.textContent = 'Apagando…';
     try {
-      await api('/frota/manut', { method: 'DELETE' });
+      await api('/manut', { method: 'DELETE' });
       _manutDados = null;
       manutSalvarCache(null);
       if (status) status.textContent = 'Histórico apagado.';
