@@ -209,7 +209,10 @@ let abaAtiva = 'indicadores';
 const MANUT_STORAGE_KEY = 'frota_manut_v1';
 
 function manutSalvar(dados) {
-  try { localStorage.setItem(MANUT_STORAGE_KEY, JSON.stringify(dados)); } catch (_) {}
+  try {
+    if (dados == null) localStorage.removeItem(MANUT_STORAGE_KEY);
+    else localStorage.setItem(MANUT_STORAGE_KEY, JSON.stringify(dados));
+  } catch (_) {}
 }
 function manutCarregarStorage() {
   try {
@@ -628,6 +631,15 @@ function htmlManutencaoShell() {
         📄 ${temDados ? 'Trocar arquivo' : 'Selecionar arquivo'}
       </label>
       <input type="file" id="manut-csv-input" accept=".csv,.xlsx" style="display:none">
+      ${temDados ? `<button id="mbtn-limpar-dados" style="
+        display:inline-flex; align-items:center; gap:.4rem;
+        background:transparent; color:var(--alerta);
+        border:1px solid var(--alerta); border-radius:var(--raio-p);
+        padding:.45rem 1rem; font:600 .85rem var(--f-texto); cursor:pointer;
+        white-space:nowrap; transition:background var(--transicao);
+      " onmouseover="this.style.background='var(--alerta-fundo)'" onmouseout="this.style.background='transparent'">
+        🗑 Limpar dados
+      </button>` : ''}
       <span id="manut-csv-status" style="font-size:.8rem;color:var(--ok);font-weight:600"></span>
     </div>`;
 
@@ -1055,6 +1067,16 @@ function configurarManutencao() {
       if (status) status.textContent = '✗ Erro ao ler arquivo';
       console.error('CSV manutenção:', err);
     }
+  });
+
+  // Limpar todos os dados de manutenção
+  document.getElementById('mbtn-limpar-dados')?.addEventListener('click', () => {
+    if (!confirm('Tem certeza? Todos os registros de manutenção serão removidos e não poderão ser recuperados.')) return;
+    _manutDados = null;
+    manutSalvar(null);
+    // Recarrega o painel zerado
+    renderManutencao();
+    configurarManutencao();
   });
 
   // Atualiza cores quando o tema muda
