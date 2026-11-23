@@ -1074,16 +1074,66 @@ function normalizarCat(raw) {
   return (raw || '').trim() || '—';
 }
 
+// Parser CSV RFC-4180 completo: respeita campos entre aspas com ; e \n dentro
+function parseCsvRFC(text, delim) {
+  const registros = [];
+  let campo = '';
+  let campos = [];
+  let dentroAspas = false;
+  let i = 0;
+  while (i < text.length) {
+    const ch = text[i];
+    if (dentroAspas) {
+      if (ch === '"') {
+        // aspas duplas dentro de campo = aspas literal
+        if (text[i + 1] === '"') { campo += '"'; i += 2; continue; }
+        dentroAspas = false;
+      } else {
+        campo += ch;
+      }
+    } else {
+      if (ch === '"') {
+        dentroAspas = true;
+      } else if (ch === delim) {
+        campos.push(campo.trim());
+        campo = '';
+      } else if (ch === '\r' && text[i + 1] === '\n') {
+        campos.push(campo.trim());
+        campo = '';
+        registros.push(campos);
+        campos = [];
+        i += 2; continue;
+      } else if (ch === '\n') {
+        campos.push(campo.trim());
+        campo = '';
+        registros.push(campos);
+        campos = [];
+      } else {
+        campo += ch;
+      }
+    }
+    i++;
+  }
+  // última linha sem \n final
+  if (campo.trim() || campos.length) {
+    campos.push(campo.trim());
+    if (campos.some(c => c)) registros.push(campos);
+  }
+  return registros;
+}
+
 function parsearCsvManut(text) {
   // Remove BOM UTF-8 se presente
   const limpo = text.replace(/^﻿/, '');
-  const linhas = limpo.split(/\r?\n/);
-  if (!linhas.length) return [];
 
   // Detecta delimitador (CSV real usa ';')
   const delim = limpo.includes(';') ? ';' : ',';
 
-  const cabecalho = linhas[0].split(delim).map((c) => c.trim().replace(/"/g, ''));
+  // Parse correto respeitando aspas e quebras de linha dentro de campos
+  const registros = parseCsvRFC(limpo, delim);
+  if (registros.length < 2) return [];
+
+  const cabecalho = registros[0].map((c) => c.replace(/"/g, '').trim());
   const idx = (nomes) => {
     for (const n of nomes) {
       const i = cabecalho.findIndex((c) => c.toLowerCase() === n.toLowerCase());
@@ -1108,15 +1158,12 @@ function parsearCsvManut(text) {
     vt:         idx(['total', 'valor_total']),
   };
 
+  const parseBR = (s) => parseFloat((s || '0').replace(/\./g, '').replace(',', '.')) || 0;
   const rows = [];
-  for (let i = 1; i < linhas.length; i++) {
-    const lin = linhas[i];
-    if (!lin.trim()) continue;
-    // Parse simples: campos separados por delimitador, aspas removidas
-    const campos = lin.split(delim).map((c) => c.trim().replace(/^"|"$/g, ''));
-    const get = (c) => (c >= 0 ? campos[c] || '' : '');
-    // Valor: remove pontos de milhar, troca vírgula por ponto
-    const parseBR = (s) => parseFloat((s || '0').replace(/\./g, '').replace(',', '.')) || 0;
+  for (let i = 1; i < registros.length; i++) {
+    const campos = registros[i];
+    const get = (c) => (c >= 0 && c < campos.length ? campos[c] || '' : '');
+    if (!get(cols.osm) && !get(cols.placa)) continue; // linha vazia / fragmento
     rows.push({
       osm:        get(cols.osm),
       placa:      get(cols.placa).toUpperCase(),
