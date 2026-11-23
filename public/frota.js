@@ -229,7 +229,7 @@ function manutMesclar(existentes, novos) {
 }
 
 let _manutDados = manutCarregarStorage();  // dados de manutenção (persistidos no navegador)
-let _manutFiltros = { tipo: '', regional: '', cat: '' };
+let _manutFiltros = { tipo: '', tipoManut: '', placa: '' };
 let _manutBusca = '';
 let _manutSortCol = 'data'; let _manutSortDir = 1;
 let _manutPagina = 1;
@@ -572,9 +572,9 @@ function configurarPeriodo() {
 function manutFiltrados() {
   if (!_manutDados) return [];
   return _manutDados.filter((r) => {
-    if (_manutFiltros.tipo     && r.tipo     !== _manutFiltros.tipo)     return false;
-    if (_manutFiltros.regional && r.regional !== _manutFiltros.regional) return false;
-    if (_manutFiltros.cat      && r.cat      !== _manutFiltros.cat)      return false;
+    if (_manutFiltros.tipo      && r.cat   !== _manutFiltros.tipo)      return false;
+    if (_manutFiltros.tipoManut && r.tipo  !== _manutFiltros.tipoManut) return false;
+    if (_manutFiltros.placa     && r.placa !== _manutFiltros.placa)     return false;
     return true;
   });
 }
@@ -647,8 +647,16 @@ function htmlManutencaoShell() {
     <!-- Filtros -->
     <div class="manut-filtros" id="mfiltros">
       <div class="manut-filtro-grupo">
-        <span class="manut-filtro-label">Tipo de Manutenção</span>
+        <span class="manut-filtro-label">Tipo</span>
         <select class="manut-sel" id="mf-tipo">
+          <option value="">Todos</option>
+          <option value="Peça">Peça</option>
+          <option value="Serviço">Serviço</option>
+        </select>
+      </div>
+      <div class="manut-filtro-grupo">
+        <span class="manut-filtro-label">Tipo de Manutenção</span>
+        <select class="manut-sel" id="mf-tipoManut">
           <option value="">Todos</option>
           <option value="CORRETIVA">Corretiva</option>
           <option value="PREVENTIVA">Preventiva</option>
@@ -656,14 +664,16 @@ function htmlManutencaoShell() {
         </select>
       </div>
       <div class="manut-filtro-grupo">
-        <span class="manut-filtro-label">Regional</span>
-        <select class="manut-sel" id="mf-regional"><option value="">Todas</option></select>
+        <span class="manut-filtro-label">Placa do Veículo</span>
+        <select class="manut-sel" id="mf-placa"><option value="">Todas</option></select>
       </div>
-      <div class="manut-filtro-grupo">
-        <span class="manut-filtro-label">Categoria</span>
-        <select class="manut-sel" id="mf-cat"><option value="">Todas</option></select>
+      <div class="manut-filtro-grupo" style="flex:1;min-width:200px">
+        <span class="manut-filtro-label">Pesquisar</span>
+        <input class="manut-busca" id="mbusca-filtro" type="search"
+          placeholder="Descrição, fornecedor, OSM…"
+          style="width:100%;box-sizing:border-box;height:32px">
       </div>
-      <button class="btn-limpar-manut" id="mbtn-limpar">✕ Limpar</button>
+      <button class="btn-limpar-manut" id="mbtn-limpar" style="align-self:flex-end">✕ Limpar</button>
     </div>
 
     <!-- Sub-abas -->
@@ -727,20 +737,6 @@ function htmlManutencaoShell() {
     <div class="manut-painel" id="maba-detalhe">
       <div class="secao" style="margin-bottom:0">
 
-        <!-- Filtro de placa + busca -->
-        <div style="display:flex;align-items:flex-end;flex-wrap:wrap;gap:.75rem;margin-bottom:1rem">
-          <div>
-            <div class="manut-label">Veículo (placa)</div>
-            <select class="manut-sel" id="mf-placa-detalhe" style="min-width:160px">
-              <option value="">Todos os veículos</option>
-            </select>
-          </div>
-          <div style="flex:1;min-width:200px">
-            <div class="manut-label">Buscar</div>
-            <input class="manut-busca" id="mbusca" type="search" placeholder="Descrição, fornecedor, OSM…" style="width:100%;box-sizing:border-box">
-          </div>
-        </div>
-
         <!-- Cabeçalho com contagem e total -->
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem;margin-bottom:.6rem">
           <span id="mtab-titulo" style="font:700 .9rem var(--f-titulo);color:var(--texto-2)">Registros</span>
@@ -752,10 +748,11 @@ function htmlManutencaoShell() {
             <thead>
               <tr>
                 <th data-col="data">Data</th>
-                <th data-col="tipo">Tipo</th>
                 <th data-col="item">Descrição</th>
                 <th data-col="fornecedor">Fornecedor</th>
-                <th data-col="vt" style="text-align:right">Valor</th>
+                <th data-col="qtd" style="text-align:right">Qtd</th>
+                <th data-col="vu"  style="text-align:right">Valor Unit.</th>
+                <th data-col="vt"  style="text-align:right">Total</th>
               </tr>
             </thead>
             <tbody id="mtabela-body"></tbody>
@@ -785,9 +782,7 @@ function popularSelectsManut() {
     vals.forEach((v) => { const o = document.createElement('option'); o.value = v; o.textContent = v; el.appendChild(o); });
     el.value = val;
   };
-  preencherSel('mf-regional',       uniq('regional'));
-  preencherSel('mf-cat',           uniq('cat'));
-  preencherSel('mf-placa-detalhe', uniq('placa'));
+  preencherSel('mf-placa', uniq('placa'));
 }
 
 function renderManutKPIs(df) {
@@ -889,12 +884,8 @@ function renderManutCharts(df) {
   ));
 }
 
-let _manutPlacaDetalhe = '';  // filtro de placa exclusivo do detalhamento
-
 function renderManutTabela(df) {
-  // Aplica filtro de placa do detalhamento sobre o df já filtrado globalmente
-  const selPlaca = _manutPlacaDetalhe;
-  const base = manutBusca(selPlaca ? df.filter((r) => r.placa === selPlaca) : df);
+  const base = manutBusca(df);
 
   const sorted = [...base].sort((a, b) => {
     const va = a[_manutSortCol] ?? ''; const vb = b[_manutSortCol] ?? '';
@@ -915,9 +906,8 @@ function renderManutTabela(df) {
   const next  = document.getElementById('mpag-next');
   const tfoot = document.getElementById('mtabela-tfoot');
 
-  const veicLabel = selPlaca ? ` — ${selPlaca}` : '';
-  if (tit)  tit.textContent  = `${totalRegs} registro(s)${veicLabel}`;
-  if (tot)  tot.textContent  = totalRegs ? `Total gasto: ${moeda(totalValor)}` : '';
+  if (tit)  tit.textContent  = `${totalRegs} registro(s)`;
+  if (tot)  tot.textContent  = totalRegs ? `Total: ${moeda(totalValor)}` : '';
   if (info) info.textContent = `${totalRegs ? ini + 1 : 0}–${fim} de ${totalRegs}`;
   if (prev) prev.disabled    = _manutPagina <= 1;
   if (next) next.disabled    = fim >= totalRegs;
@@ -925,22 +915,25 @@ function renderManutTabela(df) {
   const tbody = document.getElementById('mtabela-body');
   if (!tbody) return;
 
+  const fmtQtd = (v) => v ? v.toLocaleString('pt-BR', { maximumFractionDigits: 2 }) : '—';
+
   tbody.innerHTML = pags.map((r) => `
     <tr>
       <td style="white-space:nowrap">${esc(r.data || '—')}</td>
-      <td><span class="chip chip-${r.tipo === 'CORRETIVA' ? 'corretiva' : 'preventiva'}">${esc(r.tipo || '—')}</span></td>
       <td>${esc(r.item || '—')}</td>
       <td>${esc(r.fornecedor || '—')}</td>
+      <td style="text-align:right">${fmtQtd(r.qtd)}</td>
+      <td style="text-align:right;white-space:nowrap">${r.vu ? moeda(r.vu) : '—'}</td>
       <td style="text-align:right;font-weight:600;white-space:nowrap">${moeda(r.vt)}</td>
     </tr>`).join('') ||
-    `<tr><td colspan="5" style="text-align:center;padding:1.5rem;color:var(--texto-3)">Nenhum registro encontrado.</td></tr>`;
+    `<tr><td colspan="6" style="text-align:center;padding:1.5rem;color:var(--texto-3)">Nenhum registro encontrado.</td></tr>`;
 
   // Linha de total no rodapé da tabela
   if (tfoot) {
     tfoot.innerHTML = totalRegs ? `
       <tr style="border-top:2px solid var(--linha-forte)">
-        <td colspan="4" style="font-weight:700;color:var(--texto-2);padding:.6rem .75rem">
-          Total${selPlaca ? ' — ' + selPlaca : ''} (${totalRegs} registros)
+        <td colspan="5" style="font-weight:700;color:var(--texto-2);padding:.6rem .75rem">
+          Total (${totalRegs} registros)
         </td>
         <td style="text-align:right;font-weight:800;color:var(--laranja-texto);padding:.6rem .75rem;white-space:nowrap">
           ${moeda(totalValor)}
@@ -976,45 +969,35 @@ function renderManutencao() {
 }
 
 function configurarManutencao() {
-  // Filtros
-  ['mf-tipo', 'mf-regional', 'mf-cat'].forEach((id) => {
+  // Filtros (selects)
+  [['mf-tipo', 'tipo'], ['mf-tipoManut', 'tipoManut'], ['mf-placa', 'placa']].forEach(([id, chave]) => {
     const el = document.getElementById(id);
     if (!el) return;
-    el.value = _manutFiltros[id.replace('mf-', '')] || '';
+    el.value = _manutFiltros[chave] || '';
     el.addEventListener('change', (e) => {
-      _manutFiltros[id.replace('mf-', '')] = e.target.value;
+      _manutFiltros[chave] = e.target.value;
+      _manutPagina = 1;
       atualizarManut();
     });
   });
 
   document.getElementById('mbtn-limpar')?.addEventListener('click', () => {
-    _manutFiltros = { tipo: '', regional: '', cat: '' };
+    _manutFiltros = { tipo: '', tipoManut: '', placa: '' };
     _manutBusca = '';
-    ['mf-tipo', 'mf-regional', 'mf-cat'].forEach((id) => {
+    ['mf-tipo', 'mf-tipoManut', 'mf-placa'].forEach((id) => {
       const el = document.getElementById(id);
       if (el) el.value = '';
     });
-    const b = document.getElementById('mbusca');
+    const b = document.getElementById('mbusca-filtro');
     if (b) b.value = '';
     atualizarManut();
   });
 
-  // Filtro de placa do detalhamento
-  const selPlacaDet = document.getElementById('mf-placa-detalhe');
-  if (selPlacaDet) {
-    selPlacaDet.value = _manutPlacaDetalhe;
-    selPlacaDet.addEventListener('change', (e) => {
-      _manutPlacaDetalhe = e.target.value;
-      _manutPagina = 1;
-      renderManutTabela(manutFiltrados());
-    });
-  }
-
-  // Busca
-  document.getElementById('mbusca')?.addEventListener('input', (e) => {
+  // Campo de pesquisa global
+  document.getElementById('mbusca-filtro')?.addEventListener('input', (e) => {
     _manutBusca = e.target.value;
     _manutPagina = 1;
-    renderManutTabela(manutFiltrados());
+    atualizarManut();
   });
 
   // Paginação
@@ -1120,7 +1103,9 @@ function parsearCsvManut(text) {
     cat:        idx(['tipo', 'categoria_item', 'categoria']),                // Materiais/Peças ou Serviço
     item:       idx(['descricao', 'des_item', 'item']),
     data:       idx(['dtae', 'data_manutencao', 'data']),
-    vt:         idx(['total', 'valor_total', 'valor']),
+    qtd:        idx(['qtd', 'quantidade']),
+    vu:         idx(['valor', 'valor_unitario', 'vr_unit']),
+    vt:         idx(['total', 'valor_total']),
   };
 
   const rows = [];
@@ -1131,7 +1116,7 @@ function parsearCsvManut(text) {
     const campos = lin.split(delim).map((c) => c.trim().replace(/^"|"$/g, ''));
     const get = (c) => (c >= 0 ? campos[c] || '' : '');
     // Valor: remove pontos de milhar, troca vírgula por ponto
-    const vtRaw = get(cols.vt).replace(/\./g, '').replace(',', '.');
+    const parseBR = (s) => parseFloat((s || '0').replace(/\./g, '').replace(',', '.')) || 0;
     rows.push({
       osm:        get(cols.osm),
       placa:      get(cols.placa).toUpperCase(),
@@ -1142,7 +1127,9 @@ function parsearCsvManut(text) {
       cat:        normalizarCat(get(cols.cat)),          // Peça ou Serviço
       item:       get(cols.item),
       data:       get(cols.data),
-      vt:         parseFloat(vtRaw) || 0,
+      qtd:        parseBR(get(cols.qtd)),
+      vu:         parseBR(get(cols.vu)),
+      vt:         parseBR(get(cols.vt)),
     });
   }
   return rows;
