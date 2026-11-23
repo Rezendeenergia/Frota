@@ -10,6 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Semi+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/rezende-tema.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" defer></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; }
     html, body { margin: 0; height: 100%; }
@@ -183,6 +184,91 @@
     .grupo-barra { height: 100%; background: var(--laranja); border-radius: 4px; transition: width .4s; }
     .grupo-qtd { width: 32px; text-align: right; font-weight: 700; color: var(--texto); }
 
+    /* ── Manutenção BI ──────────────────────────────────── */
+    .manut-filtros {
+      display: flex; flex-wrap: wrap; gap: .6rem; align-items: flex-end;
+      margin-bottom: 1.25rem;
+    }
+    .manut-filtro-grupo { display: flex; flex-direction: column; gap: .25rem; }
+    .manut-filtro-label {
+      font-size: .68rem; font-weight: 700; color: var(--texto-3);
+      text-transform: uppercase; letter-spacing: .05em;
+    }
+    .manut-sel {
+      height: 32px; padding: 0 .6rem;
+      border: 1px solid var(--linha-forte); border-radius: var(--raio-p);
+      background: var(--sup); color: var(--texto);
+      font: .82rem var(--f-texto); cursor: pointer; outline: none;
+      min-width: 150px; transition: border-color var(--transicao);
+    }
+    .manut-sel:focus { border-color: var(--laranja); }
+    .btn-limpar-manut {
+      height: 32px; padding: 0 .75rem; align-self: flex-end;
+      border: 1px solid var(--linha-forte); border-radius: var(--raio-p);
+      background: transparent; color: var(--texto-2);
+      font: .82rem var(--f-texto); cursor: pointer;
+      transition: background var(--transicao);
+    }
+    .btn-limpar-manut:hover { background: var(--sup-3); }
+    .manut-abas {
+      display: flex; gap: 2px; flex-wrap: wrap;
+      border-bottom: 2px solid var(--linha); margin-bottom: 1.25rem;
+    }
+    .manut-aba-btn {
+      padding: .55rem 1rem; border: none; background: transparent;
+      font: 600 .82rem var(--f-titulo); color: var(--texto-3);
+      cursor: pointer; border-radius: var(--raio-p) var(--raio-p) 0 0;
+      border-bottom: 2px solid transparent; margin-bottom: -2px;
+      transition: color var(--transicao), border-color var(--transicao);
+    }
+    .manut-aba-btn:hover { color: var(--texto); }
+    .manut-aba-btn.ativa { color: var(--laranja-texto); border-bottom-color: var(--laranja); }
+    .manut-painel { display: none; }
+    .manut-painel.ativo { display: block; }
+    .charts-grid-manut {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 1.25rem; margin-bottom: 1.5rem;
+    }
+    .chart-card-manut {
+      background: var(--sup); border: 1px solid var(--linha);
+      border-radius: var(--raio); padding: 1rem 1.1rem;
+      box-shadow: var(--sombra);
+    }
+    .chart-card-manut.wide { grid-column: 1 / -1; }
+    .chart-titulo-manut {
+      font: 700 .88rem var(--f-titulo); color: var(--texto-2);
+      margin-bottom: .75rem;
+      padding-bottom: .6rem; border-bottom: 1px solid var(--linha);
+    }
+    .manut-busca {
+      height: 32px; padding: 0 .7rem;
+      border: 1px solid var(--linha-forte); border-radius: var(--raio-p);
+      background: var(--sup-2); color: var(--texto);
+      font: .82rem var(--f-texto); outline: none; min-width: 200px;
+      transition: border-color var(--transicao);
+    }
+    .manut-busca:focus { border-color: var(--laranja); }
+    .chip-corretiva { background: var(--alerta-fundo,rgba(244,63,94,.11)); color: var(--alerta); }
+    .chip-preventiva { background: var(--ok-fundo,rgba(16,185,129,.13)); color: var(--ok); }
+    .chip-peca  { background: var(--laranja-fundo); color: var(--laranja-texto); }
+    .chip-serv  { background: var(--aviso-fundo,rgba(245,158,11,.15)); color: var(--aviso); }
+    .manut-pag {
+      display: flex; align-items: center; justify-content: flex-end; gap: .5rem;
+      padding: .6rem .9rem; border-top: 1px solid var(--linha);
+      font-size: .78rem; color: var(--texto-3);
+    }
+    .manut-pag-btn {
+      height: 26px; padding: 0 .7rem;
+      border: 1px solid var(--linha-forte); border-radius: var(--raio-p);
+      background: var(--sup-2); color: var(--texto-2);
+      font-size: .78rem; cursor: pointer;
+    }
+    .manut-pag-btn:disabled { opacity: .4; cursor: default; }
+    .manut-pag-btn:not(:disabled):hover { background: var(--sup-3); }
+    thead th[data-col] { cursor: pointer; user-select: none; }
+    thead th[data-col]:hover { color: var(--texto); }
+
     /* ── Card de rastreamento ───────────────────────────── */
     .rast-promo {
       background: var(--sup); border: 1px solid var(--linha);
@@ -236,6 +322,7 @@
     <button class="aba-btn ativa" data-aba="indicadores" role="tab" aria-selected="true">Indicadores</button>
     <button class="aba-btn" data-aba="locacao"       role="tab" aria-selected="false">Locação</button>
     <button class="aba-btn" data-aba="abastecimento" role="tab" aria-selected="false">Abastecimento</button>
+    <button class="aba-btn" data-aba="manutencao"    role="tab" aria-selected="false">Manutenção</button>
     <button class="aba-btn" data-aba="rastreamento"  role="tab" aria-selected="false">Rastreamento</button>
   </nav>
 

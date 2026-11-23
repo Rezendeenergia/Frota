@@ -2,6 +2,100 @@
    Alimenta public/frota.html com dados de /api/frota/*
    ------------------------------------------------------------------ */
 
+// ------------------------------------------------------------------ //
+// Chart.js — utilitários de tema
+// ------------------------------------------------------------------ //
+
+function rzVar(v) { return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+const PAL_GRAFICO = ['#F7931E','#1E3A8A','#0D9488','#B45309','#7C3AED','#64748B','#EC4899','#059669'];
+
+function optsDonut(labels, vals, cores) {
+  return {
+    type: 'doughnut',
+    data: { labels, datasets: [{ data: vals, backgroundColor: cores,
+      borderColor: rzVar('--sup'), borderWidth: 3, hoverOffset: 6 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false, cutout: '64%',
+      plugins: {
+        legend: { position: 'bottom', labels: { color: rzVar('--texto-2'),
+          font: { family: 'Barlow', size: 11 }, padding: 10, boxWidth: 12 } },
+        tooltip: { callbacks: { label: (ctx) => {
+          const t = vals.reduce((a, b) => a + b, 0);
+          return ` ${ctx.parsed.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})} (${t ? ((ctx.parsed/t)*100).toFixed(1)+'%' : '0%'})`;
+        } } }
+      }
+    }
+  };
+}
+
+function optsBarHoriz(labels, dados, cor) {
+  return {
+    type: 'bar',
+    data: { labels, datasets: [{ data: dados, backgroundColor: cor || '#F7931E',
+      borderRadius: 4, borderSkipped: false }] },
+    options: {
+      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: (ctx) =>
+          ` ${ctx.parsed.x.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}` } }
+      },
+      scales: {
+        x: { ticks: { color: rzVar('--texto-3'), font: { family: 'Barlow', size: 11 } },
+             grid: { color: rzVar('--linha') } },
+        y: { ticks: { color: rzVar('--texto-3'), font: { family: 'Barlow', size: 11 } },
+             grid: { color: rzVar('--linha') } }
+      }
+    }
+  };
+}
+
+function optsBarVert(labels, dados, cor) {
+  return {
+    type: 'bar',
+    data: { labels, datasets: [{ data: dados,
+      backgroundColor: cor || dados.map((_, i) => PAL_GRAFICO[i % PAL_GRAFICO.length] + 'dd'),
+      borderRadius: 4 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: (ctx) =>
+          ` ${ctx.parsed.y.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}` } }
+      },
+      scales: {
+        x: { ticks: { color: rzVar('--texto-3'), font: { family: 'Barlow', size: 11 }, maxRotation: 45 },
+             grid: { color: rzVar('--linha') } },
+        y: { ticks: { color: rzVar('--texto-3'), font: { family: 'Barlow', size: 11 } },
+             grid: { color: rzVar('--linha') } }
+      }
+    }
+  };
+}
+
+const _chartRefs = {};
+function destruirChart(id) { if (_chartRefs[id]) { _chartRefs[id].destroy(); delete _chartRefs[id]; } }
+function criarChart(id, cfg) {
+  destruirChart(id);
+  const el = document.getElementById(id);
+  if (!el) return;
+  _chartRefs[id] = new Chart(el, cfg);
+}
+function atualizarCoresCharts() {
+  Object.values(_chartRefs).forEach((c) => {
+    if (!c.options.scales) return;
+    ['x', 'y'].forEach((ax) => {
+      if (c.options.scales[ax]) {
+        c.options.scales[ax].ticks.color = rzVar('--texto-3');
+        c.options.scales[ax].grid.color  = rzVar('--linha');
+      }
+    });
+    if (c.options.plugins?.legend?.labels)
+      c.options.plugins.legend.labels.color = rzVar('--texto-2');
+    c.update();
+  });
+}
+
 'use strict';
 
 // ------------------------------------------------------------------ //
@@ -44,6 +138,12 @@ async function api(caminho) {
 // ------------------------------------------------------------------ //
 
 let abaAtiva = 'indicadores';
+let _manutDados = null;        // dados de manutenção (carregados na 1ª vez)
+let _manutFiltros = { tipo: '', contrato: '', cc: '', modelo: '', cat: '' };
+let _manutBusca = '';
+let _manutSortCol = 'data'; let _manutSortDir = 1;
+let _manutPagina = 1;
+const MANUT_POR_PAG = 20;
 let dadosGlobais = null;   // resultado de /api/frota/dados
 let periodoAbast = '30dias';
 
@@ -103,8 +203,8 @@ function mostrarErroGlobal(msg) {
   document.getElementById('conteudo').innerHTML =
     `<div class="estado-global" style="flex-direction:column;gap:.5rem;">
        <span style="font-size:1.5rem">⚠️</span>
-       <span style="color:var(--frota-texto)">${esc(msg)}</span>
-       <button onclick="carregarDados(true)" style="margin-top:.5rem;padding:.4rem 1rem;border-radius:6px;border:1px solid var(--frota-borda);background:var(--frota-bg-card);cursor:pointer;font:600 .9rem Barlow,sans-serif;color:var(--frota-laranja);">Tentar novamente</button>
+       <span style="color:var(--texto)">${esc(msg)}</span>
+       <button onclick="carregarDados(true)" style="margin-top:.5rem;padding:.4rem 1rem;border-radius:6px;border:1px solid var(--linha-forte);background:var(--sup);cursor:pointer;font:600 .9rem Barlow,sans-serif;color:var(--laranja-texto);">Tentar novamente</button>
      </div>`;
 }
 
@@ -131,9 +231,11 @@ function renderizarAba(nome) {
   if (nome === 'indicadores') el.innerHTML = htmlIndicadores(dadosGlobais);
   else if (nome === 'locacao') el.innerHTML = htmlLocacao(dadosGlobais);
   else if (nome === 'abastecimento') el.innerHTML = htmlAbastecimento(dadosGlobais);
+  else if (nome === 'manutencao') renderManutencao();
   else if (nome === 'rastreamento') el.innerHTML = htmlRastreamento();
 
   if (nome === 'abastecimento') configurarPeriodo();
+  if (nome === 'manutencao') configurarManutencao();
 }
 
 // ------------------------------------------------------------------ //
@@ -193,10 +295,29 @@ function htmlIndicadores(d) {
        <span class="grupo-qtd">${g.qtd}</span>
      </div>`).join('');
 
+  // Manutenção — resumo dos dados já carregados
+  let manutResumido = '';
+  if (_manutDados && _manutDados.length) {
+    const total = _manutDados.reduce((s, r) => s + r.vt, 0);
+    const corr  = _manutDados.filter((r) => r.tipo === 'CORRETIVA').reduce((s, r) => s + r.vt, 0);
+    const veics = new Set(_manutDados.map((r) => r.placa)).size;
+    const osms  = new Set(_manutDados.map((r) => r.osm)).size;
+    manutResumido = `
+      <div class="secao">
+        <h3 class="secao-titulo">Manutenção (período carregado)</h3>
+        <div class="indicadores-grid">
+          ${cardInd('Custo total', moeda(total), 'laranja', '')}
+          ${cardInd('Manutenção corretiva', moeda(corr), '', ((corr/total)*100).toFixed(1)+'% do total')}
+          ${cardInd('Veículos atendidos', veics, '', osms+' OSMs')}
+        </div>
+      </div>`;
+  }
+
   return `
     ${aviso}
     ${cards}
     ${abastResumido}
+    ${manutResumido}
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:1.5rem">
       ${barrasTipo ? `<div class="secao"><h3 class="secao-titulo">Por tipo de veículo</h3><div class="grupo-lista">${barrasTipo}</div></div>` : ''}
       ${barrasLoc  ? `<div class="secao"><h3 class="secao-titulo">Por locadora</h3><div class="grupo-lista">${barrasLoc}</div></div>` : ''}
@@ -240,8 +361,8 @@ function htmlLocacao(d) {
     ${aviso}
     <div class="secao">
       <h3 class="secao-titulo">Veículos locados (${veiculos.length})</h3>
-      <div style="font-size:.88rem;color:var(--frota-texto-suave);margin-bottom:.9rem">
-        Total mensal: <strong style="color:var(--frota-laranja)">${moeda(loc.custoTotal)}</strong>
+      <div style="font-size:.88rem;color:var(--texto-2);margin-bottom:.9rem">
+        Total mensal: <strong style="color:var(--laranja-texto)">${moeda(loc.custoTotal)}</strong>
       </div>
       <div class="tabela-wrap">
         <table>
@@ -352,6 +473,464 @@ function configurarPeriodo() {
       }
     });
   });
+}
+
+// ------------------------------------------------------------------ //
+// ABA: Manutenção
+// ------------------------------------------------------------------ //
+
+function manutFiltrados() {
+  if (!_manutDados) return [];
+  return _manutDados.filter((r) => {
+    if (_manutFiltros.tipo     && r.tipo      !== _manutFiltros.tipo)      return false;
+    if (_manutFiltros.contrato && r.contrato  !== _manutFiltros.contrato)  return false;
+    if (_manutFiltros.cc       && r.cc        !== _manutFiltros.cc)        return false;
+    if (_manutFiltros.modelo   && r.modelo    !== _manutFiltros.modelo)    return false;
+    if (_manutFiltros.cat      && r.cat       !== _manutFiltros.cat)       return false;
+    return true;
+  });
+}
+
+function manutBusca(base) {
+  if (!_manutBusca) return base;
+  const q = _manutBusca.toLowerCase();
+  return base.filter((r) =>
+    (r.placa || '').toLowerCase().includes(q) ||
+    (r.item  || '').toLowerCase().includes(q) ||
+    (r.fornecedor || '').toLowerCase().includes(q) ||
+    (r.modelo || '').toLowerCase().includes(q)
+  );
+}
+
+function manutAgrupar(arr, campo) {
+  const acc = {};
+  arr.forEach((r) => { const k = r[campo] || '—'; acc[k] = (acc[k] || 0) + r.vt; });
+  return Object.entries(acc).sort((a, b) => b[1] - a[1]);
+}
+
+function htmlManutencaoShell() {
+  // HTML estático — preenchido via JS depois
+  return `
+    <!-- Filtros -->
+    <div class="manut-filtros" id="mfiltros">
+      <div class="manut-filtro-grupo">
+        <span class="manut-filtro-label">Tipo</span>
+        <select class="manut-sel" id="mf-tipo">
+          <option value="">Todos</option>
+          <option value="CORRETIVA">Corretiva</option>
+          <option value="PREVENTIVA">Preventiva</option>
+        </select>
+      </div>
+      <div class="manut-filtro-grupo">
+        <span class="manut-filtro-label">Contrato</span>
+        <select class="manut-sel" id="mf-contrato"><option value="">Todos</option></select>
+      </div>
+      <div class="manut-filtro-grupo">
+        <span class="manut-filtro-label">Centro de Custo</span>
+        <select class="manut-sel" id="mf-cc"><option value="">Todos</option></select>
+      </div>
+      <div class="manut-filtro-grupo">
+        <span class="manut-filtro-label">Modelo</span>
+        <select class="manut-sel" id="mf-modelo"><option value="">Todos</option></select>
+      </div>
+      <div class="manut-filtro-grupo">
+        <span class="manut-filtro-label">Categoria</span>
+        <select class="manut-sel" id="mf-cat">
+          <option value="">Todas</option>
+          <option value="Peça">Peça</option>
+          <option value="Serviço">Serviço</option>
+        </select>
+      </div>
+      <button class="btn-limpar-manut" id="mbtn-limpar">✕ Limpar</button>
+    </div>
+
+    <!-- Sub-abas -->
+    <div class="manut-abas">
+      <button class="manut-aba-btn ativa" data-maba="visao">Visão Geral</button>
+      <button class="manut-aba-btn" data-maba="veiculos">Por Veículo</button>
+      <button class="manut-aba-btn" data-maba="fornecedores">Fornecedores</button>
+      <button class="manut-aba-btn" data-maba="detalhe">Detalhamento</button>
+    </div>
+
+    <!-- ── Sub-aba: Visão Geral ── -->
+    <div class="manut-painel ativo" id="maba-visao">
+      <div class="indicadores-grid" id="mkpi-grid"></div>
+      <div class="charts-grid-manut">
+        <div class="chart-card-manut">
+          <div class="chart-titulo-manut">Corretiva × Preventiva</div>
+          <div style="height:200px;position:relative"><canvas id="mchart-tipo"></canvas></div>
+        </div>
+        <div class="chart-card-manut">
+          <div class="chart-titulo-manut">Peça × Serviço</div>
+          <div style="height:200px;position:relative"><canvas id="mchart-cat"></canvas></div>
+        </div>
+        <div class="chart-card-manut">
+          <div class="chart-titulo-manut">Por Contrato</div>
+          <div style="height:200px;position:relative"><canvas id="mchart-contr"></canvas></div>
+        </div>
+        <div class="chart-card-manut">
+          <div class="chart-titulo-manut">Por Centro de Custo</div>
+          <div style="height:200px;position:relative"><canvas id="mchart-cc"></canvas></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Sub-aba: Por Veículo ── -->
+    <div class="manut-painel" id="maba-veiculos">
+      <div class="charts-grid-manut">
+        <div class="chart-card-manut wide">
+          <div class="chart-titulo-manut">Custo por veículo (R$)</div>
+          <div style="height:300px;position:relative"><canvas id="mchart-veic"></canvas></div>
+        </div>
+        <div class="chart-card-manut">
+          <div class="chart-titulo-manut">Por modelo</div>
+          <div style="height:260px;position:relative"><canvas id="mchart-modelo"></canvas></div>
+        </div>
+        <div class="chart-card-manut">
+          <div class="chart-titulo-manut">Top itens (ocorrências)</div>
+          <div style="height:260px;position:relative"><canvas id="mchart-itens"></canvas></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Sub-aba: Fornecedores ── -->
+    <div class="manut-painel" id="maba-fornecedores">
+      <div class="charts-grid-manut">
+        <div class="chart-card-manut wide">
+          <div class="chart-titulo-manut">Gasto por fornecedor (R$)</div>
+          <div style="height:300px;position:relative"><canvas id="mchart-forn"></canvas></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Sub-aba: Detalhamento ── -->
+    <div class="manut-painel" id="maba-detalhe">
+      <div class="secao" style="margin-bottom:0">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem;margin-bottom:.75rem">
+          <h3 class="secao-titulo" id="mtab-titulo" style="margin-bottom:0">Registros</h3>
+          <input class="manut-busca" id="mbusca" type="search" placeholder="Buscar placa, item, fornecedor…">
+        </div>
+        <div class="tabela-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th data-col="osm">OSM</th>
+                <th data-col="placa">Placa</th>
+                <th data-col="modelo">Modelo</th>
+                <th data-col="tipo">Tipo</th>
+                <th data-col="cat">Categoria</th>
+                <th data-col="item">Item</th>
+                <th data-col="fornecedor">Fornecedor</th>
+                <th data-col="data">Data</th>
+                <th data-col="vt" style="text-align:right">Valor</th>
+              </tr>
+            </thead>
+            <tbody id="mtabela-body"></tbody>
+          </table>
+        </div>
+        <div class="manut-pag">
+          <span id="mpag-info">–</span>
+          <button class="manut-pag-btn" id="mpag-prev">‹ Anterior</button>
+          <button class="manut-pag-btn" id="mpag-next">Próximo ›</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Upload CSV -->
+    <div style="margin-top:1.75rem;padding-top:1.25rem;border-top:1px solid var(--linha)">
+      <div style="font-size:.82rem;color:var(--texto-3)">
+        📂 <strong>Atualizar dados:</strong> importe o arquivo CSV exportado do sistema de manutenção.
+        <label for="manut-csv-input" style="margin-left:.5rem;cursor:pointer;color:var(--laranja-texto);font-weight:600;text-decoration:underline">
+          Selecionar arquivo
+        </label>
+        <input type="file" id="manut-csv-input" accept=".csv" style="display:none">
+        <span id="manut-csv-status" style="margin-left:.75rem;font-size:.8rem;color:var(--ok)"></span>
+      </div>
+    </div>`;
+}
+
+function popularSelectsManut() {
+  if (!_manutDados) return;
+  const uniq = (campo) => [...new Set(_manutDados.map((r) => r[campo]))].filter(Boolean).sort();
+  const preencherSel = (id, vals) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const val = el.value;
+    // limpa opções extras
+    while (el.options.length > 1) el.remove(1);
+    vals.forEach((v) => { const o = document.createElement('option'); o.value = v; o.textContent = v; el.appendChild(o); });
+    el.value = val;
+  };
+  preencherSel('mf-contrato', uniq('contrato'));
+  preencherSel('mf-cc',       uniq('cc'));
+  preencherSel('mf-modelo',   uniq('modelo'));
+}
+
+function renderManutKPIs(df) {
+  const total = df.reduce((s, r) => s + r.vt, 0);
+  const corr  = df.filter((r) => r.tipo === 'CORRETIVA').reduce((s, r) => s + r.vt, 0);
+  const prev  = df.filter((r) => r.tipo === 'PREVENTIVA').reduce((s, r) => s + r.vt, 0);
+  const osms  = new Set(df.map((r) => r.osm)).size;
+  const veics = new Set(df.map((r) => r.placa)).size;
+  const pct   = (a, t) => t ? ((a / t) * 100).toFixed(1) + '%' : '0%';
+  const el    = document.getElementById('mkpi-grid');
+  if (!el) return;
+  el.innerHTML = `
+    ${cardInd('Custo Total', moeda(total), 'laranja', df.length + ' itens · ' + osms + ' OSMs')}
+    ${cardInd('Corretiva',   moeda(corr),  '', pct(corr, total) + ' do total')}
+    ${cardInd('Preventiva',  moeda(prev),  '', pct(prev, total) + ' do total')}
+    ${cardInd('Veículos',    veics, '', 'atendidos no período')}
+    ${cardInd('Custo/Veículo', veics ? moeda(total / veics) : '—', '', 'média por veículo')}
+    ${cardInd('Peças', pct(df.filter((r) => r.cat === 'Peça').reduce((s, r) => s + r.vt, 0), total), '', 'do total em peças')}
+  `;
+}
+
+function renderManutCharts(df) {
+  const corr = df.filter((r) => r.tipo === 'CORRETIVA').reduce((s, r) => s + r.vt, 0);
+  const prev = df.filter((r) => r.tipo === 'PREVENTIVA').reduce((s, r) => s + r.vt, 0);
+  criarChart('mchart-tipo', optsDonut(['Corretiva', 'Preventiva'], [corr, prev], ['#BE123C', '#047857']));
+
+  const peca = df.filter((r) => r.cat === 'Peça').reduce((s, r) => s + r.vt, 0);
+  const serv = df.filter((r) => r.cat === 'Serviço').reduce((s, r) => s + r.vt, 0);
+  criarChart('mchart-cat', optsDonut(['Peça', 'Serviço'], [peca, serv], ['#F7931E', '#1E3A8A']));
+
+  const grpC = manutAgrupar(df, 'contrato');
+  criarChart('mchart-contr', optsDonut(grpC.map((x) => x[0]), grpC.map((x) => x[1]), PAL_GRAFICO));
+
+  const grpCC = manutAgrupar(df, 'cc');
+  criarChart('mchart-cc', optsDonut(grpCC.map((x) => x[0]), grpCC.map((x) => x[1]), ['#7C3AED', '#0D9488', '#B45309', '#1E3A8A']));
+
+  const grpV = manutAgrupar(df, 'placa').slice(0, 15);
+  criarChart('mchart-veic', optsBarHoriz(grpV.map((x) => x[0]), grpV.map((x) => x[1]),
+    grpV.map((_, i) => i === 0 ? '#F7931E' : PAL_GRAFICO[i % PAL_GRAFICO.length] + 'cc')));
+
+  const grpM = manutAgrupar(df, 'modelo').slice(0, 10);
+  criarChart('mchart-modelo', optsBarVert(grpM.map((x) => x[0]), grpM.map((x) => x[1]), '#F7931E'));
+
+  // Itens: contagem
+  const acc = {};
+  df.forEach((r) => { const k = r.item || '—'; acc[k] = (acc[k] || 0) + 1; });
+  const grpI = Object.entries(acc).sort((a, b) => b[1] - a[1]).slice(0, 10);
+  criarChart('mchart-itens', {
+    type: 'bar', indexAxis: 'y',
+    data: { labels: grpI.map((x) => x[0].length > 22 ? x[0].slice(0, 20) + '…' : x[0]),
+            datasets: [{ data: grpI.map((x) => x[1]), backgroundColor: '#1E3A8A', borderRadius: 4 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false },
+        tooltip: { callbacks: { label: (ctx) => ` ${ctx.parsed.x} ocorrência(s)` } } },
+      scales: {
+        x: { ticks: { color: rzVar('--texto-3'), font: { family: 'Barlow', size: 11 } }, grid: { color: rzVar('--linha') } },
+        y: { ticks: { color: rzVar('--texto-3'), font: { family: 'Barlow', size: 11 } }, grid: { color: rzVar('--linha') } }
+      }
+    }
+  });
+
+  const grpF = manutAgrupar(df, 'fornecedor').slice(0, 12);
+  criarChart('mchart-forn', optsBarHoriz(grpF.map((x) => x[0]), grpF.map((x) => x[1]),
+    grpF.map((_, i) => PAL_GRAFICO[i % PAL_GRAFICO.length] + 'dd')));
+}
+
+function renderManutTabela(df) {
+  const base = manutBusca(df);
+  const sorted = [...base].sort((a, b) => {
+    const va = a[_manutSortCol] ?? ''; const vb = b[_manutSortCol] ?? '';
+    if (typeof va === 'number') return (va - vb) * _manutSortDir;
+    return va.toString().localeCompare(vb.toString(), 'pt-BR') * _manutSortDir;
+  });
+  const total = sorted.length;
+  const ini   = (_manutPagina - 1) * MANUT_POR_PAG;
+  const fim   = Math.min(ini + MANUT_POR_PAG, total);
+  const pags  = sorted.slice(ini, fim);
+
+  const tit  = document.getElementById('mtab-titulo');
+  const info = document.getElementById('mpag-info');
+  const prev = document.getElementById('mpag-prev');
+  const next = document.getElementById('mpag-next');
+  if (tit)  tit.textContent  = total + ' registros';
+  if (info) info.textContent = `${total ? ini + 1 : 0}–${fim} de ${total}`;
+  if (prev) prev.disabled    = _manutPagina <= 1;
+  if (next) next.disabled    = fim >= total;
+
+  const tbody = document.getElementById('mtabela-body');
+  if (!tbody) return;
+  tbody.innerHTML = pags.map((r) => `
+    <tr>
+      <td><strong>${esc(r.osm)}</strong></td>
+      <td style="font-weight:600">${esc(r.placa || '—')}</td>
+      <td>${esc(r.modelo || '—')}</td>
+      <td><span class="chip chip-${r.tipo === 'CORRETIVA' ? 'corretiva' : 'preventiva'}">${esc(r.tipo)}</span></td>
+      <td><span class="chip chip-${r.cat === 'Peça' ? 'peca' : 'serv'}">${esc(r.cat || '—')}</span></td>
+      <td>${esc(r.item || '—')}</td>
+      <td>${esc(r.fornecedor || '—')}</td>
+      <td>${esc(r.data || '—')}</td>
+      <td style="text-align:right;font-weight:600">${moeda(r.vt)}</td>
+    </tr>`).join('') ||
+    `<tr><td colspan="9" style="text-align:center;padding:1.5rem;color:var(--texto-3)">Nenhum registro encontrado.</td></tr>`;
+}
+
+function atualizarManut() {
+  const df = manutFiltrados();
+  renderManutKPIs(df);
+  renderManutCharts(df);
+  _manutPagina = 1;
+  renderManutTabela(df);
+  // Atualiza cards da aba Indicadores se estiver renderizada
+  if (abaAtiva === 'indicadores') renderizarAba('indicadores');
+}
+
+function renderManutencao() {
+  const el = document.getElementById('conteudo');
+  el.innerHTML = htmlManutencaoShell();
+  popularSelectsManut();
+
+  if (_manutDados) {
+    atualizarManut();
+  } else {
+    // Nenhum dado ainda — mostra prompt de upload
+    document.getElementById('mkpi-grid').innerHTML =
+      `<div style="grid-column:1/-1;padding:1.5rem;text-align:center;color:var(--texto-3);font-size:.9rem">
+         Importe o arquivo CSV do sistema de manutenção para visualizar os indicadores.
+       </div>`;
+  }
+}
+
+function configurarManutencao() {
+  // Filtros
+  ['mf-tipo', 'mf-contrato', 'mf-cc', 'mf-modelo', 'mf-cat'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.value = _manutFiltros[id.replace('mf-', '')] || '';
+    el.addEventListener('change', (e) => {
+      _manutFiltros[id.replace('mf-', '')] = e.target.value;
+      atualizarManut();
+    });
+  });
+
+  document.getElementById('mbtn-limpar')?.addEventListener('click', () => {
+    _manutFiltros = { tipo: '', contrato: '', cc: '', modelo: '', cat: '' };
+    _manutBusca = '';
+    ['mf-tipo', 'mf-contrato', 'mf-cc', 'mf-modelo', 'mf-cat'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.value = '';
+    });
+    const b = document.getElementById('mbusca');
+    if (b) b.value = '';
+    atualizarManut();
+  });
+
+  // Busca
+  document.getElementById('mbusca')?.addEventListener('input', (e) => {
+    _manutBusca = e.target.value;
+    _manutPagina = 1;
+    renderManutTabela(manutFiltrados());
+  });
+
+  // Paginação
+  document.getElementById('mpag-prev')?.addEventListener('click', () => {
+    if (_manutPagina > 1) { _manutPagina--; renderManutTabela(manutFiltrados()); }
+  });
+  document.getElementById('mpag-next')?.addEventListener('click', () => {
+    _manutPagina++; renderManutTabela(manutFiltrados());
+  });
+
+  // Ordenação
+  document.querySelectorAll('thead th[data-col]').forEach((th) => {
+    th.addEventListener('click', () => {
+      const col = th.dataset.col;
+      if (_manutSortCol === col) _manutSortDir *= -1;
+      else { _manutSortCol = col; _manutSortDir = 1; }
+      renderManutTabela(manutFiltrados());
+    });
+  });
+
+  // Sub-abas
+  document.querySelectorAll('.manut-aba-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.manut-aba-btn').forEach((b) => b.classList.remove('ativa'));
+      document.querySelectorAll('.manut-painel').forEach((p) => p.classList.remove('ativo'));
+      btn.classList.add('ativa');
+      document.getElementById('maba-' + btn.dataset.maba)?.classList.add('ativo');
+    });
+  });
+
+  // Upload CSV
+  document.getElementById('manut-csv-input')?.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const status = document.getElementById('manut-csv-status');
+    if (status) status.textContent = 'Lendo…';
+    try {
+      const text = await file.text();
+      _manutDados = parsearCsvManut(text);
+      if (status) status.textContent = `✓ ${_manutDados.length} registros carregados`;
+      popularSelectsManut();
+      atualizarManut();
+    } catch (err) {
+      if (status) status.textContent = '✗ Erro ao ler arquivo';
+      console.error('CSV manutenção:', err);
+    }
+  });
+
+  // Atualiza cores quando o tema muda
+  document.documentElement.addEventListener('rz:tema', atualizarCoresCharts);
+}
+
+function parsearCsvManut(text) {
+  // Remove BOM UTF-8 se presente
+  const limpo = text.replace(/^﻿/, '');
+  const linhas = limpo.split(/\r?\n/);
+  if (!linhas.length) return [];
+
+  // Detecta delimitador
+  const delim = limpo.includes(';') ? ';' : ',';
+
+  const cabecalho = linhas[0].split(delim).map((c) => c.trim().replace(/"/g, ''));
+  const idx = (nomes) => {
+    for (const n of nomes) {
+      const i = cabecalho.findIndex((c) => c.toLowerCase() === n.toLowerCase());
+      if (i >= 0) return i;
+    }
+    return -1;
+  };
+
+  const cols = {
+    osm:        idx(['cod_osm', 'osm']),
+    placa:      idx(['placa']),
+    modelo:     idx(['modelo_veiculo', 'modelo']),
+    cc:         idx(['centro_custo', 'cc']),
+    contrato:   idx(['contrato']),
+    fornecedor: idx(['fornecedor']),
+    tipo:       idx(['tipo_manutencao', 'tipo']),
+    cat:        idx(['categoria_item', 'categoria']),
+    item:       idx(['des_item', 'item', 'descricao']),
+    data:       idx(['data_manutencao', 'data']),
+    vt:         idx(['valor_total', 'valor']),
+  };
+
+  const rows = [];
+  for (let i = 1; i < linhas.length; i++) {
+    const lin = linhas[i];
+    if (!lin.trim()) continue;
+    // Parse simples (sem quoted fields com newlines)
+    const campos = lin.split(delim).map((c) => c.trim().replace(/^"|"$/g, ''));
+    const get = (c) => (c >= 0 ? campos[c] || '' : '');
+    const vtRaw = get(cols.vt).replace(/\./g, '').replace(',', '.');
+    rows.push({
+      osm:        get(cols.osm),
+      placa:      get(cols.placa).toUpperCase(),
+      modelo:     get(cols.modelo),
+      cc:         get(cols.cc),
+      contrato:   get(cols.contrato),
+      fornecedor: get(cols.fornecedor),
+      tipo:       get(cols.tipo).toUpperCase(),
+      cat:        get(cols.cat),
+      item:       get(cols.item),
+      data:       get(cols.data),
+      vt:         parseFloat(vtRaw) || 0,
+    });
+  }
+  return rows;
 }
 
 // ------------------------------------------------------------------ //
