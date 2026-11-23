@@ -318,5 +318,143 @@ export function criarRouterFrota() {
     }
   });
 
+  // ------------------------------------------------------------------ //
+  // Abastecimento detalhado — indicadores com base nos dados do Supabase Abast
+  // ------------------------------------------------------------------ //
+
+  r.get('/abastecimento-detalhado', autenticar, async (req, res) => {
+    if (!SB_KEY) return res.status(503).json({ erro: 'Banco de abastecimento não configurado.' });
+
+    // Período: hoje / 7dias / 30dias / mes
+    const periodo = ['hoje', '7dias', '30dias', 'mes'].includes(req.query.periodo)
+      ? req.query.periodo : '30dias';
+
+    const agora = new Date();
+    let dataInicio;
+    if (periodo === 'hoje') {
+      dataInicio = new Date(agora); dataInicio.setHours(0,0,0,0);
+    } else if (periodo === '7dias') {
+      dataInicio = new Date(agora); dataInicio.setDate(agora.getDate() - 7);
+    } else if (periodo === '30dias') {
+      dataInicio = new Date(agora); dataInicio.setDate(agora.getDate() - 30);
+    } else { // mes
+      dataInicio = new Date(agora.getFullYear(), agora.getMonth(), 1);
+    }
+    const dtIso = dataInicio.toISOString();
+
+    try {
+      // Busca todos os abastecimentos do período (sem bombonas)
+      // Paginação: até 5000 registros
+      const rows = await sbFetch(
+        `/requests?select=plate,vehicle,gas_station,fuel_type,liters,km,km_before,price_per_liter,real_value,date` +
+        `&status=in.(completed,signed)&plate=not.is.null&date=gte.${encodeURIComponent(dtIso)}` +
+        `&order=date.asc&limit=5000`,
+        { headers: { 'Prefer': 'count=none' } }
+      );
+
+      // Converte litros de "50.0 L" para número
+      function parseLitros(v) {
+        if (!v) return 0;
+        return parseFloat(String(v).replace(/\s*L$/i,'').replace(',','.')) || 0;
+      }
+      function parseKm(v) { return Number(v) || 0; }
+      function parsePreco(v) {
+        if (!v) return 0;
+        return parseFloat(String(v).replace(/[R$\s]/g,'').replace(',','.')) || 0;
+      }
+
+      let totalLitros = 0;
+      let totalKmRodados = 0;
+      let totalValor = 0;
+      let countKm = 0; // quantas linhas têm km_before válido (para média km/L)
+
+      const porPlaca  = {}; // { litros, kmRodados, contagem }
+      const porPosto  = {}; // { litros, contagem }
+      const porCombustivel = {}; // { litros, contagem }
+
+      for (const row of rows) {
+        const litros = parseLitros(row.liters);
+        const km     = parseKm(row.km);
+        const kmBef  = parseKm(row.km_before);
+        const valor  = parsePreco(row.real_value) || (litros * parseFloat(row.price_per_liter || 0));
+        const placa  = (row.plate || '').trim().toUpperCase();
+        const posto  = (row.gas_station || 'Não informado').trim();
+        const comb   = (row.fuel_type   || 'Não informado').trim();
+
+        totalLitros += litros;
+        totalValor  += valor;
+
+        const kmRodados = (km > 0 && kmBef > 0 && km > kmBef) ? (km - kmBef) : 0;
+        if (kmRodados > 0) { totalKmRodados += kmRodados; countKm++; }
+
+        if (placa) {
+          if (!porPlaca[placa]) porPlaca[placa] = { litros:0, kmRodados:0, contagem:0 };
+          porPlaca[placa].litros    += litros;
+          porPlaca[placa].kmRodados += kmRodados;
+          porPlaca[placa].contagem  += 1;
+        }
+        if (posto) {
+          if (!porPosto[posto]) porPosto[posto] = { litros:0, contagem:0 };
+          porPosto[posto].litros   += litros;
+          porPosto[posto].contagem += 1;
+        }
+        if (comb) {
+          if (!porCombustivel[comb]) porCombustivel[comb] = { litros:0, contagem:0 };
+          porCombustivel[comb].litros   += litros;
+          porCombustivel[comb].contagem += 1;
+        }
+      }
+
+      // km/L médio geral (soma dos km rodados / soma dos litros dos abastecimentos com km)
+      const kmLMedio = (totalKmRodados > 0 && totalLitros > 0)
+        ? (totalKmRodados / totalLitros) : null;
+
+      // Lista de placas ordenada por litros desc
+      const placas = Object.entries(porPlaca)
+        .map(([placa, d]) => ({
+          placa,
+          litros:     Math.round(d.litros * 10) / 10,
+          kmRodados:  d.kmRodados,
+          kmL:        (d.kmRodados > 0 && d.litros > 0) ? Math.round(d.kmRodados / d.litros * 100) / 100 : null,
+          contagem:   d.contagem,
+        }))
+        .sort((a, b) => b.litros - a.litros);
+
+      // Lista de postos ordenada por litros desc
+      const postos = Object.entries(porPosto)
+        .map(([posto, d]) => ({
+          posto,
+          litros:   Math.round(d.litros * 10) / 10,
+          contagem: d.contagem,
+        }))
+        .sort((a, b) => b.litros - a.litros);
+
+      // Lista de combustíveis ordenada por litros desc
+      const combustiveis = Object.entries(porCombustivel)
+        .map(([tipo, d]) => ({
+          tipo,
+          litros:   Math.round(d.litros * 10) / 10,
+          contagem: d.contagem,
+          pct:      totalLitros > 0 ? Math.round(d.litros / totalLitros * 1000) / 10 : 0,
+        }))
+        .sort((a, b) => b.litros - a.litros);
+
+      res.json({
+        periodo,
+        totalAbastecimentos: rows.length,
+        totalLitros:  Math.round(totalLitros * 10) / 10,
+        totalValor:   Math.round(totalValor * 100) / 100,
+        kmLMedio:     kmLMedio !== null ? Math.round(kmLMedio * 100) / 100 : null,
+        mediaLPorAbast: rows.length > 0 ? Math.round(totalLitros / rows.length * 10) / 10 : 0,
+        placas,
+        postos,
+        combustiveis,
+      });
+    } catch (err) {
+      console.error('[frota/abast-det]', err?.message || err);
+      res.status(502).json({ erro: 'Falha ao buscar dados de abastecimento.' });
+    }
+  });
+
   return r;
 }
