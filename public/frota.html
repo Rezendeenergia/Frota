@@ -178,6 +178,48 @@
       gap: 1rem; margin-bottom: 1.5rem;
     }
 
+    /* ── Filtros de abastecimento ───────────────────────── */
+    .abast-filtros {
+      display: flex; flex-wrap: wrap; gap: .6rem; align-items: flex-end;
+      background: var(--sup); border: 1px solid var(--linha);
+      border-radius: var(--raio); padding: .75rem 1rem;
+      margin-bottom: 1.25rem;
+    }
+    .abast-filtro-grupo { display: flex; flex-direction: column; gap: .25rem; }
+    .abast-filtro-label {
+      font-size: .68rem; font-weight: 700; color: var(--texto-3);
+      text-transform: uppercase; letter-spacing: .05em;
+    }
+    .abast-sel {
+      height: 32px; padding: 0 .6rem;
+      border: 1px solid var(--linha-forte); border-radius: var(--raio-p);
+      background: var(--sup); color: var(--texto);
+      font: .82rem var(--f-texto); cursor: pointer; outline: none;
+      min-width: 160px; max-width: 240px;
+    }
+    .abast-sel:focus { border-color: var(--laranja); }
+    .abast-btn-limpar {
+      height: 32px; padding: 0 .9rem;
+      border: 1px solid var(--linha-forte); border-radius: var(--raio-p);
+      background: transparent; color: var(--texto-2);
+      font: .82rem var(--f-texto); cursor: pointer;
+      transition: background var(--transicao), color var(--transicao);
+      align-self: flex-end;
+    }
+    .abast-btn-limpar:hover { background: var(--alerta-fundo); color: var(--alerta); border-color: var(--alerta); }
+
+    /* ── Cards de gráfico ───────────────────────────────── */
+    .grafico-card {
+      background: var(--sup); border: 1px solid var(--linha);
+      border-radius: var(--raio); padding: 1rem 1.25rem;
+    }
+    .grafico-titulo {
+      font-size: .78rem; font-weight: 700; color: var(--texto-2);
+      text-transform: uppercase; letter-spacing: .05em;
+      margin-bottom: .75rem;
+    }
+    .grafico-wrap { position: relative; }
+
     /* ── Grupos por tipo (barras) ───────────────────────── */
     .grupo-lista { display: flex; flex-direction: column; gap: .5rem; }
     .grupo-item { display: flex; align-items: center; gap: .75rem; font-size: .88rem; }
