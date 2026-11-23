@@ -510,7 +510,42 @@ function manutAgrupar(arr, campo) {
 
 function htmlManutencaoShell() {
   // HTML estático — preenchido via JS depois
-  return `
+  const temDados = !!(_manutDados && _manutDados.length);
+  const uploadCard = `
+    <div id="manut-upload-card" style="
+      background:var(--sup); border:2px dashed var(--linha-forte);
+      border-radius:var(--raio); padding:1rem 1.25rem;
+      display:flex; align-items:center; gap:1rem; flex-wrap:wrap;
+      margin-bottom:1.25rem;
+      ${temDados ? 'border-style:solid;border-color:var(--ok);' : ''}
+    ">
+      <span style="font-size:1.5rem">${temDados ? '✅' : '📂'}</span>
+      <div style="flex:1;min-width:200px">
+        <div style="font-size:.88rem;font-weight:600;color:var(--texto);margin-bottom:.2rem">
+          ${temDados
+            ? `Dados carregados — ${_manutDados.length} registros`
+            : 'Importar planilha de manutenção'}
+        </div>
+        <div style="font-size:.78rem;color:var(--texto-3)">
+          ${temDados
+            ? 'Para atualizar, selecione um novo arquivo CSV.'
+            : 'Selecione o arquivo CSV exportado do sistema de manutenção.'}
+        </div>
+      </div>
+      <label for="manut-csv-input" style="
+        display:inline-flex; align-items:center; gap:.4rem;
+        background:var(--laranja); color:var(--sobre-laranja);
+        padding:.45rem 1rem; border-radius:var(--raio-p);
+        font:600 .85rem var(--f-texto); cursor:pointer;
+        white-space:nowrap;
+      ">
+        📄 ${temDados ? 'Trocar arquivo' : 'Selecionar arquivo'}
+      </label>
+      <input type="file" id="manut-csv-input" accept=".csv,.xlsx" style="display:none">
+      <span id="manut-csv-status" style="font-size:.8rem;color:var(--ok);font-weight:600"></span>
+    </div>`;
+
+  return uploadCard + `
     <!-- Filtros -->
     <div class="manut-filtros" id="mfiltros">
       <div class="manut-filtro-grupo">
@@ -577,11 +612,11 @@ function htmlManutencaoShell() {
 
     <!-- ── Sub-aba: Por Veículo ── -->
     <div class="manut-painel" id="maba-veiculos">
+      <div class="chart-card-manut" style="margin-bottom:1.25rem">
+        <div class="chart-titulo-manut">Custo por veículo (R$)</div>
+        <div style="height:300px;position:relative"><canvas id="mchart-veic"></canvas></div>
+      </div>
       <div class="charts-grid-manut">
-        <div class="chart-card-manut wide">
-          <div class="chart-titulo-manut">Custo por veículo (R$)</div>
-          <div style="height:300px;position:relative"><canvas id="mchart-veic"></canvas></div>
-        </div>
         <div class="chart-card-manut">
           <div class="chart-titulo-manut">Por modelo</div>
           <div style="height:260px;position:relative"><canvas id="mchart-modelo"></canvas></div>
@@ -595,11 +630,9 @@ function htmlManutencaoShell() {
 
     <!-- ── Sub-aba: Fornecedores ── -->
     <div class="manut-painel" id="maba-fornecedores">
-      <div class="charts-grid-manut">
-        <div class="chart-card-manut wide">
-          <div class="chart-titulo-manut">Gasto por fornecedor (R$)</div>
-          <div style="height:300px;position:relative"><canvas id="mchart-forn"></canvas></div>
-        </div>
+      <div class="chart-card-manut">
+        <div class="chart-titulo-manut">Gasto por fornecedor (R$)</div>
+        <div style="height:320px;position:relative"><canvas id="mchart-forn"></canvas></div>
       </div>
     </div>
 
@@ -636,17 +669,7 @@ function htmlManutencaoShell() {
       </div>
     </div>
 
-    <!-- Upload CSV -->
-    <div style="margin-top:1.75rem;padding-top:1.25rem;border-top:1px solid var(--linha)">
-      <div style="font-size:.82rem;color:var(--texto-3)">
-        📂 <strong>Atualizar dados:</strong> importe o arquivo CSV exportado do sistema de manutenção.
-        <label for="manut-csv-input" style="margin-left:.5rem;cursor:pointer;color:var(--laranja-texto);font-weight:600;text-decoration:underline">
-          Selecionar arquivo
-        </label>
-        <input type="file" id="manut-csv-input" accept=".csv" style="display:none">
-        <span id="manut-csv-status" style="margin-left:.75rem;font-size:.8rem;color:var(--ok)"></span>
-      </div>
-    </div>`;
+    `;
 }
 
 function popularSelectsManut() {
