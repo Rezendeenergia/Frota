@@ -208,6 +208,9 @@ async function api(caminho, opts = {}) {
 // ------------------------------------------------------------------ //
 
 let abaAtiva = 'indicadores';
+// Dados detalhados de abastecimento (carregados da rota /abastecimento-detalhado)
+let _abastDetalhado = null;
+let _abastDetalhadoPeriodo = null;
 // v3: dados persistidos no Supabase via /api/frota/manut (não mais localStorage)
 // localStorage ainda guarda uma cópia local como cache offline
 const MANUT_STORAGE_KEY = 'frota_manut_v3';
@@ -354,11 +357,9 @@ function renderizarAba(nome) {
 
   if (nome === 'indicadores') el.innerHTML = htmlIndicadores(dadosGlobais);
   else if (nome === 'locacao') el.innerHTML = htmlLocacao(dadosGlobais);
-  else if (nome === 'abastecimento') el.innerHTML = htmlAbastecimento(dadosGlobais);
+  else if (nome === 'abastecimento') { renderAbastecimento(); return; }
   else if (nome === 'manutencao') { renderManutencao().then(() => configurarManutencao()); return; }
   else if (nome === 'rastreamento') el.innerHTML = htmlRastreamento();
-
-  if (nome === 'abastecimento') configurarPeriodo();
 }
 
 // ------------------------------------------------------------------ //
@@ -380,13 +381,17 @@ function htmlIndicadores(d) {
       ${cardInd('Patrimônio (próprios)', moeda(ind.valorImobilizado), '', 'valor NF')}
     </div>`;
 
-  // Abastecimento (resumo)
+  // Abastecimento (resumo com detalhes se já carregados)
   let abastResumido = '';
   const ab = d.abastecimento;
   if (ab && ab.disponivel !== false) {
     const tot = ab.totalGasto ?? ab.total_gasto ?? ab.totalReais;
     const lit  = ab.totalLitros ?? ab.total_litros;
     const med  = ab.precoMedio  ?? ab.preco_medio;
+    // Dados detalhados já carregados?
+    const det = (_abastDetalhadoPeriodo === periodoAbast) ? _abastDetalhado : null;
+    const kmL  = det?.kmLMedio;
+    const topComb = det?.combustiveis?.[0];
     abastResumido = `
       <div class="secao">
         <h3 class="secao-titulo">Abastecimento (${rotulosPeriodo[periodoAbast] || periodoAbast})</h3>
@@ -394,6 +399,8 @@ function htmlIndicadores(d) {
           ${tot  != null ? cardInd('Total gasto',   moeda(tot),  'laranja', '') : ''}
           ${lit  != null ? cardInd('Total litros',  num(lit)+' L', '', '') : ''}
           ${med  != null ? cardInd('Preço médio',   moeda(med)+'/L', '', '') : ''}
+          ${kmL  != null ? cardInd('Média km/L',    kmL.toFixed(2), kmL < 2 ? 'alerta' : '', 'frota geral') : ''}
+          ${topComb      ? cardInd('Mais usado',    topComb.tipo,   '', num(topComb.litros)+' L ('+topComb.pct.toFixed(0)+'%)') : ''}
         </div>
       </div>`;
   }
@@ -508,8 +515,11 @@ function htmlLocacao(d) {
 
 const rotulosPeriodo = { hoje: 'Hoje', '7dias': 'Últimos 7 dias', '30dias': 'Últimos 30 dias', mes: 'Este mês' };
 
-function htmlAbastecimento(d) {
-  const ab = d.abastecimento;
+// Renderiza a aba de abastecimento: mostra dados básicos imediatamente,
+// carrega dados detalhados em paralelo (postos, placas, combustíveis, km/L).
+async function renderAbastecimento() {
+  const el = document.getElementById('conteudo');
+  const ab = dadosGlobais?.abastecimento;
 
   const selPeriodo = `
     <div class="periodo-sel" id="selPeriodo">
@@ -519,62 +529,128 @@ function htmlAbastecimento(d) {
     </div>`;
 
   if (!ab || ab.disponivel === false) {
-    return selPeriodo +
+    el.innerHTML = selPeriodo +
       `<div class="aviso-erro">⚠️ ${esc(ab?.motivo || 'Dados de abastecimento indisponíveis.')}</div>`;
+    configurarPeriodo();
+    return;
   }
 
-  // Mapeamentos de campos (a API pode retornar em snake_case ou camelCase)
+  // Exibe cards básicos imediatamente
   const totalGasto  = ab.totalGasto  ?? ab.total_gasto;
   const totalLitros = ab.totalLitros ?? ab.total_litros;
   const precoMedio  = ab.precoMedio  ?? ab.preco_medio;
   const abastCount  = ab.abastecimentos ?? ab.total ?? ab.count;
-  const postos      = ab.postos || [];
-  const veiculos    = ab.veiculos || ab.porVeiculo || [];
-  const combustiveis= ab.combustiveis || ab.porCombustivel || [];
 
-  const cards = `
-    <div class="abast-grid">
-      ${totalGasto  != null ? cardInd('Total gasto',       moeda(totalGasto),     'laranja', '') : ''}
-      ${totalLitros != null ? cardInd('Total litros',      num(totalLitros)+' L', '', '') : ''}
-      ${precoMedio  != null ? cardInd('Preço médio',       moeda(precoMedio)+'/L', '', '') : ''}
-      ${abastCount  != null ? cardInd('Abastecimentos',    num(abastCount), '', '') : ''}
-    </div>`;
+  el.innerHTML = selPeriodo + `
+    <div class="abast-grid" id="abast-cards">
+      ${totalGasto  != null ? cardInd('Total gasto',    moeda(totalGasto),     'laranja', '') : ''}
+      ${totalLitros != null ? cardInd('Litros totais',  num(totalLitros)+' L', '', '') : ''}
+      ${precoMedio  != null ? cardInd('Preço médio',    moeda(precoMedio)+'/L', '', '') : ''}
+      ${abastCount  != null ? cardInd('Abastecimentos', num(abastCount),       '', '') : ''}
+      <div id="card-kml" class="ind-card"><div class="ind-label">Média km/L</div><div class="ind-valor">carregando…</div></div>
+    </div>
+    <div id="abast-detalhes"><div class="estado-global" style="font-size:.9rem;color:var(--texto-2)">Carregando detalhes…</div></div>`;
 
-  const tabelaPostos = postos.length ? `
+  configurarPeriodo();
+
+  // Busca detalhes no servidor (pode demorar um pouco)
+  if (_abastDetalhado && _abastDetalhadoPeriodo === periodoAbast) {
+    _renderAbastDetalhes(_abastDetalhado);
+  } else {
+    try {
+      const det = await api('/abastecimento-detalhado?periodo=' + periodoAbast);
+      _abastDetalhado = det;
+      _abastDetalhadoPeriodo = periodoAbast;
+      _renderAbastDetalhes(det);
+    } catch (err) {
+      const divDet = document.getElementById('abast-detalhes');
+      if (divDet) divDet.innerHTML = `<div class="aviso-erro">⚠️ Não foi possível carregar os detalhes: ${esc(err.message)}</div>`;
+    }
+  }
+}
+
+function _renderAbastDetalhes(det) {
+  // Atualiza card km/L
+  const cardKml = document.getElementById('card-kml');
+  if (cardKml) {
+    const kmL = det.kmLMedio;
+    cardKml.innerHTML = `
+      <div class="ind-label">Média km/L</div>
+      <div class="ind-valor ${kmL != null && kmL < 2 ? 'alerta' : ''}">${kmL != null ? kmL.toFixed(2) : '—'}</div>
+      <div class="ind-detalhe">média de L/abast: ${num(det.mediaLPorAbast)} L</div>`;
+  }
+
+  // Monta tabelas
+  const tabelaPlacas = det.placas?.length ? `
     <div class="secao">
-      <h3 class="secao-titulo">Por posto</h3>
+      <h3 class="secao-titulo">Por placa (${det.placas.length} veículos)</h3>
       <div class="tabela-wrap">
         <table>
-          <thead><tr><th>Posto</th><th style="text-align:right">Litros</th><th style="text-align:right">Total</th></tr></thead>
+          <thead>
+            <tr>
+              <th>Placa</th>
+              <th style="text-align:right">Litros</th>
+              <th style="text-align:right">KM rodados</th>
+              <th style="text-align:right">km/L</th>
+              <th style="text-align:right">Abast.</th>
+            </tr>
+          </thead>
           <tbody>
-            ${postos.map((p) => `<tr>
-              <td>${esc(p.nome || p.posto || p.name || '—')}</td>
-              <td style="text-align:right">${num(p.litros || p.totalLitros || 0)} L</td>
-              <td style="text-align:right;font-weight:600">${moeda(p.total || p.totalGasto || p.gasto || 0)}</td>
+            ${det.placas.map((p) => `<tr>
+              <td><strong>${esc(p.placa)}</strong></td>
+              <td style="text-align:right">${num(p.litros)} L</td>
+              <td style="text-align:right">${p.kmRodados > 0 ? num(p.kmRodados)+' km' : '—'}</td>
+              <td style="text-align:right${p.kmL != null && p.kmL < 2 ? ';color:var(--alerta)' : ''}">
+                ${p.kmL != null ? p.kmL.toFixed(2) : '—'}
+              </td>
+              <td style="text-align:right">${p.contagem}</td>
             </tr>`).join('')}
           </tbody>
         </table>
       </div>
     </div>` : '';
 
-  const tabelaVeic = veiculos.length ? `
+  const tabelaPostos = det.postos?.length ? `
     <div class="secao">
-      <h3 class="secao-titulo">Por veículo</h3>
+      <h3 class="secao-titulo">Por posto (${det.postos.length} postos)</h3>
       <div class="tabela-wrap">
         <table>
-          <thead><tr><th>Placa</th><th style="text-align:right">Litros</th><th style="text-align:right">Total</th></tr></thead>
+          <thead><tr><th>Posto</th><th style="text-align:right">Litros</th><th style="text-align:right">Abast.</th></tr></thead>
           <tbody>
-            ${veiculos.map((v) => `<tr>
-              <td><strong>${esc(v.placa || v.veiculo || '—')}</strong></td>
-              <td style="text-align:right">${num(v.litros || v.totalLitros || 0)} L</td>
-              <td style="text-align:right;font-weight:600">${moeda(v.total || v.totalGasto || v.gasto || 0)}</td>
+            ${det.postos.map((p) => `<tr>
+              <td>${esc(p.posto)}</td>
+              <td style="text-align:right">${num(p.litros)} L</td>
+              <td style="text-align:right">${p.contagem}</td>
             </tr>`).join('')}
           </tbody>
         </table>
       </div>
     </div>` : '';
 
-  return selPeriodo + cards + tabelaPostos + tabelaVeic;
+  // Combustíveis com barra de progresso
+  const totalLitrosComb = det.combustiveis?.reduce((s, c) => s + c.litros, 0) || 0;
+  const tabelaComb = det.combustiveis?.length ? `
+    <div class="secao">
+      <h3 class="secao-titulo">Tipo de combustível</h3>
+      <div class="grupo-lista">
+        ${det.combustiveis.map((c) => `
+          <div class="grupo-item">
+            <span class="grupo-nome">${esc(c.tipo)}</span>
+            <div class="grupo-barra-wrap">
+              <div class="grupo-barra" style="width:${c.pct}%"></div>
+            </div>
+            <span class="grupo-qtd">${num(c.litros)} L (${c.pct.toFixed(1)}%)</span>
+          </div>`).join('')}
+      </div>
+    </div>` : '';
+
+  const divDet = document.getElementById('abast-detalhes');
+  if (divDet) divDet.innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:1.5rem">
+      ${tabelaComb}
+      ${tabelaPostos}
+    </div>
+    ${tabelaPlacas}`;
 }
 
 function configurarPeriodo() {
@@ -582,9 +658,10 @@ function configurarPeriodo() {
     btn.addEventListener('click', async () => {
       if (btn.dataset.p === periodoAbast) return;
       periodoAbast = btn.dataset.p;
+      _abastDetalhado = null; // invalida cache do período anterior
       // Atualiza visual imediatamente
       document.querySelectorAll('.periodo-btn').forEach((b) => b.classList.toggle('ativo', b.dataset.p === periodoAbast));
-      // Busca só abastecimento para não recarregar tudo
+      // Busca abastecimento básico e detalhado
       try {
         const ab = await api('/abastecimento?periodo=' + periodoAbast);
         dadosGlobais = { ...dadosGlobais, abastecimento: ab };
