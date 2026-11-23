@@ -280,9 +280,9 @@ async function manutEnviarServidor(novosRegistros) {
 
 // Mescla local para preview imediato antes de confirmar no servidor
 function manutMesclarLocal(existentes, novos) {
-  // Deduplicação pela mesma lógica do servidor (OSM ou placa+data+item)
+  // Deduplicação pela mesma lógica do servidor (OSM+item ou placa+data+item)
   function chave(r) {
-    if (r.osm) return `osm:${r.osm.trim()}`;
+    if (r.osm) return `osm:${r.osm.trim()}|item:${(r.item||'').trim()}`;
     return `pfdi:${(r.placa||'').trim()}|${(r.data||'').trim()}|${(r.item||'').trim()}`;
   }
   const conhecidos = new Set(existentes.map(chave));
