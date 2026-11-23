@@ -9,6 +9,15 @@
 function rzVar(v) { return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
 const PAL_GRAFICO = ['#F7931E','#1E3A8A','#0D9488','#B45309','#7C3AED','#64748B','#EC4899','#059669'];
 
+// Registra o plugin de rótulos de dados assim que Chart.js estiver disponível
+document.addEventListener('DOMContentLoaded', () => {
+  if (typeof ChartDataLabels !== 'undefined') {
+    Chart.register(ChartDataLabels);
+    // Desativa por padrão — cada gráfico ativa individualmente quando necessário
+    Chart.defaults.set('plugins.datalabels', { display: false });
+  }
+});
+
 function optsDonut(labels, vals, cores) {
   return {
     type: 'doughnut',
@@ -29,6 +38,9 @@ function optsDonut(labels, vals, cores) {
 }
 
 function optsBarHoriz(labels, dados, cor) {
+  const fmtBRL = (v) => v >= 1000
+    ? 'R$ ' + (v / 1000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + 'k'
+    : v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   return {
     type: 'bar',
     data: { labels, datasets: [{ data: dados, backgroundColor: cor || '#F7931E',
@@ -37,9 +49,17 @@ function optsBarHoriz(labels, dados, cor) {
       indexAxis: 'y', responsive: true, maintainAspectRatio: false,
       plugins: {
         legend: { display: false },
+        datalabels: {
+          display: true,
+          anchor: 'end', align: 'right', offset: 4,
+          color: rzVar('--texto-2'), font: { family: 'Barlow', size: 10, weight: '600' },
+          formatter: fmtBRL,
+          clip: false,
+        },
         tooltip: { callbacks: { label: (ctx) =>
           ` ${ctx.parsed.x.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}` } }
       },
+      layout: { padding: { right: 72 } },
       scales: {
         x: { ticks: { color: rzVar('--texto-3'), font: { family: 'Barlow', size: 11 } },
              grid: { color: rzVar('--linha') } },
@@ -51,6 +71,9 @@ function optsBarHoriz(labels, dados, cor) {
 }
 
 function optsBarVert(labels, dados, cor) {
+  const fmtBRL = (v) => v >= 1000
+    ? 'R$ ' + (v / 1000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + 'k'
+    : v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   return {
     type: 'bar',
     data: { labels, datasets: [{ data: dados,
@@ -60,11 +83,56 @@ function optsBarVert(labels, dados, cor) {
       responsive: true, maintainAspectRatio: false,
       plugins: {
         legend: { display: false },
+        datalabels: {
+          display: true,
+          anchor: 'end', align: 'top', offset: 2,
+          color: rzVar('--texto-2'), font: { family: 'Barlow', size: 10, weight: '600' },
+          formatter: fmtBRL,
+          clip: false,
+        },
         tooltip: { callbacks: { label: (ctx) =>
           ` ${ctx.parsed.y.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}` } }
       },
+      layout: { padding: { top: 24 } },
       scales: {
         x: { ticks: { color: rzVar('--texto-3'), font: { family: 'Barlow', size: 11 }, maxRotation: 45 },
+             grid: { color: rzVar('--linha') } },
+        y: { ticks: { color: rzVar('--texto-3'), font: { family: 'Barlow', size: 11 } },
+             grid: { color: rzVar('--linha') } }
+      }
+    }
+  };
+}
+
+function optsLinha(labels, dados, cor) {
+  const fmtBRL = (v) => v >= 1000
+    ? 'R$ ' + (v / 1000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + 'k'
+    : v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  const c = cor || '#F7931E';
+  return {
+    type: 'line',
+    data: { labels, datasets: [{ data: dados,
+      borderColor: c, backgroundColor: c + '22',
+      borderWidth: 2.5, pointRadius: 5, pointBackgroundColor: c,
+      pointBorderColor: rzVar('--sup'), pointBorderWidth: 2,
+      fill: true, tension: 0.35 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        datalabels: {
+          display: true,
+          anchor: 'end', align: 'top', offset: 4,
+          color: rzVar('--texto-2'), font: { family: 'Barlow', size: 10, weight: '600' },
+          formatter: fmtBRL,
+          clip: false,
+        },
+        tooltip: { callbacks: { label: (ctx) =>
+          ` ${ctx.parsed.y.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}` } }
+      },
+      layout: { padding: { top: 24 } },
+      scales: {
+        x: { ticks: { color: rzVar('--texto-3'), font: { family: 'Barlow', size: 11 }, maxRotation: 40 },
              grid: { color: rzVar('--linha') } },
         y: { ticks: { color: rzVar('--texto-3'), font: { family: 'Barlow', size: 11 } },
              grid: { color: rzVar('--linha') } }
@@ -158,7 +226,7 @@ function manutMesclar(existentes, novos) {
 }
 
 let _manutDados = manutCarregarStorage();  // dados de manutenção (persistidos no navegador)
-let _manutFiltros = { tipo: '', modelo: '', cat: '' };
+let _manutFiltros = { tipo: '', regional: '', cat: '' };
 let _manutBusca = '';
 let _manutSortCol = 'data'; let _manutSortDir = 1;
 let _manutPagina = 1;
@@ -501,9 +569,9 @@ function configurarPeriodo() {
 function manutFiltrados() {
   if (!_manutDados) return [];
   return _manutDados.filter((r) => {
-    if (_manutFiltros.tipo   && r.tipo   !== _manutFiltros.tipo)   return false;
-    if (_manutFiltros.modelo && r.modelo !== _manutFiltros.modelo) return false;
-    if (_manutFiltros.cat      && r.cat       !== _manutFiltros.cat)       return false;
+    if (_manutFiltros.tipo     && r.tipo     !== _manutFiltros.tipo)     return false;
+    if (_manutFiltros.regional && r.regional !== _manutFiltros.regional) return false;
+    if (_manutFiltros.cat      && r.cat      !== _manutFiltros.cat)      return false;
     return true;
   });
 }
@@ -515,7 +583,8 @@ function manutBusca(base) {
     (r.placa || '').toLowerCase().includes(q) ||
     (r.item  || '').toLowerCase().includes(q) ||
     (r.fornecedor || '').toLowerCase().includes(q) ||
-    (r.modelo || '').toLowerCase().includes(q)
+    (r.modelo || '').toLowerCase().includes(q) ||
+    (r.regional || '').toLowerCase().includes(q)
   );
 }
 
@@ -566,16 +635,17 @@ function htmlManutencaoShell() {
     <!-- Filtros -->
     <div class="manut-filtros" id="mfiltros">
       <div class="manut-filtro-grupo">
-        <span class="manut-filtro-label">Tipo</span>
+        <span class="manut-filtro-label">Tipo de Manutenção</span>
         <select class="manut-sel" id="mf-tipo">
           <option value="">Todos</option>
           <option value="CORRETIVA">Corretiva</option>
           <option value="PREVENTIVA">Preventiva</option>
+          <option value="PREDITIVA">Preditiva</option>
         </select>
       </div>
       <div class="manut-filtro-grupo">
-        <span class="manut-filtro-label">Modelo</span>
-        <select class="manut-sel" id="mf-modelo"><option value="">Todos</option></select>
+        <span class="manut-filtro-label">Regional</span>
+        <select class="manut-sel" id="mf-regional"><option value="">Todas</option></select>
       </div>
       <div class="manut-filtro-grupo">
         <span class="manut-filtro-label">Categoria</span>
@@ -605,11 +675,11 @@ function htmlManutencaoShell() {
           <div style="height:200px;position:relative"><canvas id="mchart-cat"></canvas></div>
         </div>
         <div class="chart-card-manut">
-          <div class="chart-titulo-manut">Por Contrato</div>
+          <div class="chart-titulo-manut">Por Regional</div>
           <div style="height:200px;position:relative"><canvas id="mchart-contr"></canvas></div>
         </div>
         <div class="chart-card-manut">
-          <div class="chart-titulo-manut">Por Centro de Custo</div>
+          <div class="chart-titulo-manut">Por Modelo de Veículo</div>
           <div style="height:200px;position:relative"><canvas id="mchart-cc"></canvas></div>
         </div>
       </div>
@@ -623,7 +693,7 @@ function htmlManutencaoShell() {
       </div>
       <div class="charts-grid-manut">
         <div class="chart-card-manut">
-          <div class="chart-titulo-manut">Por modelo</div>
+          <div class="chart-titulo-manut">Custo por modelo (R$)</div>
           <div style="height:260px;position:relative"><canvas id="mchart-modelo"></canvas></div>
         </div>
         <div class="chart-card-manut">
@@ -703,7 +773,7 @@ function popularSelectsManut() {
     vals.forEach((v) => { const o = document.createElement('option'); o.value = v; o.textContent = v; el.appendChild(o); });
     el.value = val;
   };
-  preencherSel('mf-modelo',        uniq('modelo'));
+  preencherSel('mf-regional',       uniq('regional'));
   preencherSel('mf-cat',           uniq('cat'));
   preencherSel('mf-placa-detalhe', uniq('placa'));
 }
@@ -712,16 +782,17 @@ function renderManutKPIs(df) {
   const total = df.reduce((s, r) => s + r.vt, 0);
   const corr  = df.filter((r) => r.tipo === 'CORRETIVA').reduce((s, r) => s + r.vt, 0);
   const prev  = df.filter((r) => r.tipo === 'PREVENTIVA').reduce((s, r) => s + r.vt, 0);
+  const pred  = df.filter((r) => r.tipo === 'PREDITIVA').reduce((s, r) => s + r.vt, 0);
   const osms  = new Set(df.map((r) => r.osm)).size;
   const veics = new Set(df.map((r) => r.placa)).size;
   const pct   = (a, t) => t ? ((a / t) * 100).toFixed(1) + '%' : '0%';
   const el    = document.getElementById('mkpi-grid');
   if (!el) return;
   el.innerHTML = `
-    ${cardInd('Custo Total', moeda(total), 'laranja', df.length + ' itens · ' + osms + ' OSMs')}
-    ${cardInd('Corretiva',   moeda(corr),  '', pct(corr, total) + ' do total')}
-    ${cardInd('Preventiva',  moeda(prev),  '', pct(prev, total) + ' do total')}
-    ${cardInd('Veículos',    veics, '', 'atendidos no período')}
+    ${cardInd('Custo Total',   moeda(total), 'laranja', df.length + ' itens · ' + osms + ' OSMs')}
+    ${cardInd('Corretiva',     moeda(corr),  '', pct(corr, total) + ' do total')}
+    ${cardInd('Preventiva',    moeda(prev),  '', pct(prev, total) + ' do total')}
+    ${pred ? cardInd('Preditiva', moeda(pred), '', pct(pred, total) + ' do total') : cardInd('Veículos', veics, '', 'atendidos no período')}
     ${cardInd('Custo/Veículo', veics ? moeda(total / veics) : '—', '', 'média por veículo')}
     ${cardInd('Peças', pct(df.filter((r) => r.cat === 'Peça').reduce((s, r) => s + r.vt, 0), total), '', 'do total em peças')}
   `;
@@ -730,37 +801,66 @@ function renderManutKPIs(df) {
 function renderManutCharts(df) {
   const corr = df.filter((r) => r.tipo === 'CORRETIVA').reduce((s, r) => s + r.vt, 0);
   const prev = df.filter((r) => r.tipo === 'PREVENTIVA').reduce((s, r) => s + r.vt, 0);
-  criarChart('mchart-tipo', optsDonut(['Corretiva', 'Preventiva'], [corr, prev], ['#BE123C', '#047857']));
+  const pred = df.filter((r) => r.tipo === 'PREDITIVA').reduce((s, r) => s + r.vt, 0);
+  const labTipo = pred > 0 ? ['Corretiva', 'Preventiva', 'Preditiva'] : ['Corretiva', 'Preventiva'];
+  const valTipo = pred > 0 ? [corr, prev, pred] : [corr, prev];
+  const corTipo = pred > 0 ? ['#BE123C', '#047857', '#1D4ED8'] : ['#BE123C', '#047857'];
+  criarChart('mchart-tipo', optsDonut(labTipo, valTipo, corTipo));
 
   const peca = df.filter((r) => r.cat === 'Peça').reduce((s, r) => s + r.vt, 0);
   const serv = df.filter((r) => r.cat === 'Serviço').reduce((s, r) => s + r.vt, 0);
   criarChart('mchart-cat', optsDonut(['Peça', 'Serviço'], [peca, serv], ['#F7931E', '#1E3A8A']));
 
-  const grpC = manutAgrupar(df, 'contrato');
-  criarChart('mchart-contr', optsDonut(grpC.map((x) => x[0]), grpC.map((x) => x[1]), PAL_GRAFICO));
+  // Por Regional — barras verticais com rótulos
+  const grpReg = manutAgrupar(df, 'regional');
+  criarChart('mchart-contr', optsBarVert(
+    grpReg.map((x) => x[0]),
+    grpReg.map((x) => x[1]),
+    grpReg.map((_, i) => PAL_GRAFICO[i % PAL_GRAFICO.length])
+  ));
 
-  const grpCC = manutAgrupar(df, 'cc');
-  criarChart('mchart-cc', optsDonut(grpCC.map((x) => x[0]), grpCC.map((x) => x[1]), ['#7C3AED', '#0D9488', '#B45309', '#1E3A8A']));
+  // Por Modelo de Veículo — donut colorido
+  const grpM2 = manutAgrupar(df, 'modelo').slice(0, 8);
+  criarChart('mchart-cc', optsDonut(
+    grpM2.map((x) => x[0]),
+    grpM2.map((x) => x[1]),
+    ['#7C3AED', '#0D9488', '#B45309', '#1E3A8A', '#F7931E', '#BE123C', '#047857', '#1D4ED8']
+  ));
 
+  // Por veículo — barras horizontais com rótulos
   const grpV = manutAgrupar(df, 'placa').slice(0, 15);
-  criarChart('mchart-veic', optsBarHoriz(grpV.map((x) => x[0]), grpV.map((x) => x[1]),
-    grpV.map((_, i) => i === 0 ? '#F7931E' : PAL_GRAFICO[i % PAL_GRAFICO.length] + 'cc')));
+  criarChart('mchart-veic', optsBarHoriz(
+    grpV.map((x) => x[0]),
+    grpV.map((x) => x[1]),
+    grpV.map((_, i) => i === 0 ? '#F7931E' : PAL_GRAFICO[i % PAL_GRAFICO.length] + 'cc')
+  ));
 
+  // Por modelo — gráfico de linhas com rótulos (evolução por custo)
   const grpM = manutAgrupar(df, 'modelo').slice(0, 10);
-  criarChart('mchart-modelo', optsBarVert(grpM.map((x) => x[0]), grpM.map((x) => x[1]), '#F7931E'));
+  criarChart('mchart-modelo', optsLinha(grpM.map((x) => x[0]), grpM.map((x) => x[1]), '#F7931E'));
 
-  // Itens: contagem
+  // Top itens — barras horizontais com contagem + rótulo
   const acc = {};
   df.forEach((r) => { const k = r.item || '—'; acc[k] = (acc[k] || 0) + 1; });
   const grpI = Object.entries(acc).sort((a, b) => b[1] - a[1]).slice(0, 10);
   criarChart('mchart-itens', {
     type: 'bar', indexAxis: 'y',
-    data: { labels: grpI.map((x) => x[0].length > 22 ? x[0].slice(0, 20) + '…' : x[0]),
+    data: { labels: grpI.map((x) => x[0].length > 28 ? x[0].slice(0, 26) + '…' : x[0]),
             datasets: [{ data: grpI.map((x) => x[1]), backgroundColor: '#1E3A8A', borderRadius: 4 }] },
     options: {
       responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false },
-        tooltip: { callbacks: { label: (ctx) => ` ${ctx.parsed.x} ocorrência(s)` } } },
+      plugins: {
+        legend: { display: false },
+        datalabels: {
+          display: true,
+          anchor: 'end', align: 'right', offset: 4,
+          color: rzVar('--texto-2'), font: { family: 'Barlow', size: 10, weight: '600' },
+          formatter: (v) => v + 'x',
+          clip: false,
+        },
+        tooltip: { callbacks: { label: (ctx) => ` ${ctx.parsed.x} ocorrência(s)` } }
+      },
+      layout: { padding: { right: 48 } },
       scales: {
         x: { ticks: { color: rzVar('--texto-3'), font: { family: 'Barlow', size: 11 } }, grid: { color: rzVar('--linha') } },
         y: { ticks: { color: rzVar('--texto-3'), font: { family: 'Barlow', size: 11 } }, grid: { color: rzVar('--linha') } }
@@ -768,9 +868,13 @@ function renderManutCharts(df) {
     }
   });
 
+  // Por fornecedor — barras horizontais com rótulos
   const grpF = manutAgrupar(df, 'fornecedor').slice(0, 12);
-  criarChart('mchart-forn', optsBarHoriz(grpF.map((x) => x[0]), grpF.map((x) => x[1]),
-    grpF.map((_, i) => PAL_GRAFICO[i % PAL_GRAFICO.length] + 'dd')));
+  criarChart('mchart-forn', optsBarHoriz(
+    grpF.map((x) => x[0]),
+    grpF.map((x) => x[1]),
+    grpF.map((_, i) => PAL_GRAFICO[i % PAL_GRAFICO.length] + 'dd')
+  ));
 }
 
 let _manutPlacaDetalhe = '';  // filtro de placa exclusivo do detalhamento
@@ -861,7 +965,7 @@ function renderManutencao() {
 
 function configurarManutencao() {
   // Filtros
-  ['mf-tipo', 'mf-modelo', 'mf-cat'].forEach((id) => {
+  ['mf-tipo', 'mf-regional', 'mf-cat'].forEach((id) => {
     const el = document.getElementById(id);
     if (!el) return;
     el.value = _manutFiltros[id.replace('mf-', '')] || '';
@@ -872,9 +976,9 @@ function configurarManutencao() {
   });
 
   document.getElementById('mbtn-limpar')?.addEventListener('click', () => {
-    _manutFiltros = { tipo: '', modelo: '', cat: '' };
+    _manutFiltros = { tipo: '', regional: '', cat: '' };
     _manutBusca = '';
-    ['mf-tipo', 'mf-modelo', 'mf-cat'].forEach((id) => {
+    ['mf-tipo', 'mf-regional', 'mf-cat'].forEach((id) => {
       const el = document.getElementById(id);
       if (el) el.value = '';
     });
@@ -957,12 +1061,12 @@ function configurarManutencao() {
   document.documentElement.addEventListener('rz:tema', atualizarCoresCharts);
 }
 
-// Normaliza o valor de categoria_item para 'Peça' ou 'Serviço'
+// Normaliza o campo 'tipo' do CSV (Materiais/Peças → 'Peça', Serviço → 'Serviço')
 function normalizarCat(raw) {
-  const v = raw.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().trim();
-  if (v.startsWith('PE') || v === 'P') return 'Peça';
+  const v = (raw || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().trim();
+  if (v.includes('PE') || v.startsWith('MA') || v === 'P') return 'Peça';
   if (v.startsWith('SE') || v === 'S') return 'Serviço';
-  return raw.trim() || '—';
+  return (raw || '').trim() || '—';
 }
 
 function parsearCsvManut(text) {
@@ -971,7 +1075,7 @@ function parsearCsvManut(text) {
   const linhas = limpo.split(/\r?\n/);
   if (!linhas.length) return [];
 
-  // Detecta delimitador
+  // Detecta delimitador (CSV real usa ';')
   const delim = limpo.includes(';') ? ';' : ',';
 
   const cabecalho = linhas[0].split(delim).map((c) => c.trim().replace(/"/g, ''));
@@ -983,37 +1087,37 @@ function parsearCsvManut(text) {
     return -1;
   };
 
+  // Colunas do arquivo real exportado pelo GPM
   const cols = {
-    osm:        idx(['cod_osm', 'osm']),
-    placa:      idx(['placa']),
-    modelo:     idx(['modelo_veiculo', 'modelo']),
-    cc:         idx(['centro_custo', 'cc']),
-    contrato:   idx(['contrato']),
-    fornecedor: idx(['fornecedor']),
-    tipo:       idx(['tipo_manutencao', 'tipo']),
-    cat:        idx(['categoria_item', 'categoria']),
-    item:       idx(['des_item', 'item', 'descricao']),
-    data:       idx(['data_manutencao', 'data']),
-    vt:         idx(['valor_total', 'valor']),
+    osm:        idx(['cod_osme_osm', 'cod_osm', 'osm']),
+    placa:      idx(['cod_placa_vei', 'placa']),
+    modelo:     idx(['des_mod_veic_mdv', 'modelo_veiculo', 'modelo']),
+    regional:   idx(['des_cent_cus_ccu', 'centro_custo', 'cc']),
+    fornecedor: idx(['oficina_fornecedor', 'fornecedor']),
+    tipo:       idx(['tipo_manuntencao', 'tipo_manutencao', 'tipo_manut']),  // CORRETIVA / PREVENTIVA / PREDITIVA
+    cat:        idx(['tipo', 'categoria_item', 'categoria']),                // Materiais/Peças ou Serviço
+    item:       idx(['descricao', 'des_item', 'item']),
+    data:       idx(['dtae', 'data_manutencao', 'data']),
+    vt:         idx(['total', 'valor_total', 'valor']),
   };
 
   const rows = [];
   for (let i = 1; i < linhas.length; i++) {
     const lin = linhas[i];
     if (!lin.trim()) continue;
-    // Parse simples (sem quoted fields com newlines)
+    // Parse simples: campos separados por delimitador, aspas removidas
     const campos = lin.split(delim).map((c) => c.trim().replace(/^"|"$/g, ''));
     const get = (c) => (c >= 0 ? campos[c] || '' : '');
+    // Valor: remove pontos de milhar, troca vírgula por ponto
     const vtRaw = get(cols.vt).replace(/\./g, '').replace(',', '.');
     rows.push({
       osm:        get(cols.osm),
       placa:      get(cols.placa).toUpperCase(),
       modelo:     get(cols.modelo),
-      cc:         get(cols.cc),
-      contrato:   get(cols.contrato),
+      regional:   get(cols.regional),
       fornecedor: get(cols.fornecedor),
-      tipo:       get(cols.tipo).toUpperCase(),
-      cat:        normalizarCat(get(cols.cat)),
+      tipo:       get(cols.tipo).toUpperCase().trim(),  // CORRETIVA / PREVENTIVA / PREDITIVA
+      cat:        normalizarCat(get(cols.cat)),          // Peça ou Serviço
       item:       get(cols.item),
       data:       get(cols.data),
       vt:         parseFloat(vtRaw) || 0,
