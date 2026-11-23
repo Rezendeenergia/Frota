@@ -9,6 +9,15 @@
 function rzVar(v) { return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
 const PAL_GRAFICO = ['#F7931E','#1E3A8A','#0D9488','#B45309','#7C3AED','#64748B','#EC4899','#059669'];
 
+// Registra o plugin de rótulos de dados assim que Chart.js estiver disponível
+document.addEventListener('DOMContentLoaded', () => {
+  if (typeof ChartDataLabels !== 'undefined') {
+    Chart.register(ChartDataLabels);
+    // Desativa por padrão — cada gráfico ativa individualmente quando necessário
+    Chart.defaults.set('plugins.datalabels', { display: false });
+  }
+});
+
 function optsDonut(labels, vals, cores) {
   return {
     type: 'doughnut',
@@ -29,6 +38,9 @@ function optsDonut(labels, vals, cores) {
 }
 
 function optsBarHoriz(labels, dados, cor) {
+  const fmtBRL = (v) => v >= 1000
+    ? 'R$ ' + (v / 1000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + 'k'
+    : v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   return {
     type: 'bar',
     data: { labels, datasets: [{ data: dados, backgroundColor: cor || '#F7931E',
@@ -37,9 +49,17 @@ function optsBarHoriz(labels, dados, cor) {
       indexAxis: 'y', responsive: true, maintainAspectRatio: false,
       plugins: {
         legend: { display: false },
+        datalabels: {
+          display: true,
+          anchor: 'end', align: 'right', offset: 4,
+          color: rzVar('--texto-2'), font: { family: 'Barlow', size: 10, weight: '600' },
+          formatter: fmtBRL,
+          clip: false,
+        },
         tooltip: { callbacks: { label: (ctx) =>
           ` ${ctx.parsed.x.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}` } }
       },
+      layout: { padding: { right: 72 } },
       scales: {
         x: { ticks: { color: rzVar('--texto-3'), font: { family: 'Barlow', size: 11 } },
              grid: { color: rzVar('--linha') } },
@@ -51,6 +71,9 @@ function optsBarHoriz(labels, dados, cor) {
 }
 
 function optsBarVert(labels, dados, cor) {
+  const fmtBRL = (v) => v >= 1000
+    ? 'R$ ' + (v / 1000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + 'k'
+    : v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   return {
     type: 'bar',
     data: { labels, datasets: [{ data: dados,
@@ -60,11 +83,56 @@ function optsBarVert(labels, dados, cor) {
       responsive: true, maintainAspectRatio: false,
       plugins: {
         legend: { display: false },
+        datalabels: {
+          display: true,
+          anchor: 'end', align: 'top', offset: 2,
+          color: rzVar('--texto-2'), font: { family: 'Barlow', size: 10, weight: '600' },
+          formatter: fmtBRL,
+          clip: false,
+        },
         tooltip: { callbacks: { label: (ctx) =>
           ` ${ctx.parsed.y.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}` } }
       },
+      layout: { padding: { top: 24 } },
       scales: {
         x: { ticks: { color: rzVar('--texto-3'), font: { family: 'Barlow', size: 11 }, maxRotation: 45 },
+             grid: { color: rzVar('--linha') } },
+        y: { ticks: { color: rzVar('--texto-3'), font: { family: 'Barlow', size: 11 } },
+             grid: { color: rzVar('--linha') } }
+      }
+    }
+  };
+}
+
+function optsLinha(labels, dados, cor) {
+  const fmtBRL = (v) => v >= 1000
+    ? 'R$ ' + (v / 1000).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + 'k'
+    : v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  const c = cor || '#F7931E';
+  return {
+    type: 'line',
+    data: { labels, datasets: [{ data: dados,
+      borderColor: c, backgroundColor: c + '22',
+      borderWidth: 2.5, pointRadius: 5, pointBackgroundColor: c,
+      pointBorderColor: rzVar('--sup'), pointBorderWidth: 2,
+      fill: true, tension: 0.35 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        datalabels: {
+          display: true,
+          anchor: 'end', align: 'top', offset: 4,
+          color: rzVar('--texto-2'), font: { family: 'Barlow', size: 10, weight: '600' },
+          formatter: fmtBRL,
+          clip: false,
+        },
+        tooltip: { callbacks: { label: (ctx) =>
+          ` ${ctx.parsed.y.toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}` } }
+      },
+      layout: { padding: { top: 24 } },
+      scales: {
+        x: { ticks: { color: rzVar('--texto-3'), font: { family: 'Barlow', size: 11 }, maxRotation: 40 },
              grid: { color: rzVar('--linha') } },
         y: { ticks: { color: rzVar('--texto-3'), font: { family: 'Barlow', size: 11 } },
              grid: { color: rzVar('--linha') } }
@@ -625,7 +693,7 @@ function htmlManutencaoShell() {
       </div>
       <div class="charts-grid-manut">
         <div class="chart-card-manut">
-          <div class="chart-titulo-manut">Por modelo</div>
+          <div class="chart-titulo-manut">Custo por modelo (R$)</div>
           <div style="height:260px;position:relative"><canvas id="mchart-modelo"></canvas></div>
         </div>
         <div class="chart-card-manut">
@@ -743,31 +811,56 @@ function renderManutCharts(df) {
   const serv = df.filter((r) => r.cat === 'Serviço').reduce((s, r) => s + r.vt, 0);
   criarChart('mchart-cat', optsDonut(['Peça', 'Serviço'], [peca, serv], ['#F7931E', '#1E3A8A']));
 
+  // Por Regional — barras verticais com rótulos
   const grpReg = manutAgrupar(df, 'regional');
-  criarChart('mchart-contr', optsDonut(grpReg.map((x) => x[0]), grpReg.map((x) => x[1]), PAL_GRAFICO));
+  criarChart('mchart-contr', optsBarVert(
+    grpReg.map((x) => x[0]),
+    grpReg.map((x) => x[1]),
+    grpReg.map((_, i) => PAL_GRAFICO[i % PAL_GRAFICO.length])
+  ));
 
+  // Por Modelo de Veículo — donut colorido
   const grpM2 = manutAgrupar(df, 'modelo').slice(0, 8);
-  criarChart('mchart-cc', optsDonut(grpM2.map((x) => x[0]), grpM2.map((x) => x[1]), ['#7C3AED', '#0D9488', '#B45309', '#1E3A8A', '#F7931E', '#BE123C', '#047857', '#1D4ED8']));
+  criarChart('mchart-cc', optsDonut(
+    grpM2.map((x) => x[0]),
+    grpM2.map((x) => x[1]),
+    ['#7C3AED', '#0D9488', '#B45309', '#1E3A8A', '#F7931E', '#BE123C', '#047857', '#1D4ED8']
+  ));
 
+  // Por veículo — barras horizontais com rótulos
   const grpV = manutAgrupar(df, 'placa').slice(0, 15);
-  criarChart('mchart-veic', optsBarHoriz(grpV.map((x) => x[0]), grpV.map((x) => x[1]),
-    grpV.map((_, i) => i === 0 ? '#F7931E' : PAL_GRAFICO[i % PAL_GRAFICO.length] + 'cc')));
+  criarChart('mchart-veic', optsBarHoriz(
+    grpV.map((x) => x[0]),
+    grpV.map((x) => x[1]),
+    grpV.map((_, i) => i === 0 ? '#F7931E' : PAL_GRAFICO[i % PAL_GRAFICO.length] + 'cc')
+  ));
 
+  // Por modelo — gráfico de linhas com rótulos (evolução por custo)
   const grpM = manutAgrupar(df, 'modelo').slice(0, 10);
-  criarChart('mchart-modelo', optsBarVert(grpM.map((x) => x[0]), grpM.map((x) => x[1]), '#F7931E'));
+  criarChart('mchart-modelo', optsLinha(grpM.map((x) => x[0]), grpM.map((x) => x[1]), '#F7931E'));
 
-  // Itens: contagem
+  // Top itens — barras horizontais com contagem + rótulo
   const acc = {};
   df.forEach((r) => { const k = r.item || '—'; acc[k] = (acc[k] || 0) + 1; });
   const grpI = Object.entries(acc).sort((a, b) => b[1] - a[1]).slice(0, 10);
   criarChart('mchart-itens', {
     type: 'bar', indexAxis: 'y',
-    data: { labels: grpI.map((x) => x[0].length > 22 ? x[0].slice(0, 20) + '…' : x[0]),
+    data: { labels: grpI.map((x) => x[0].length > 28 ? x[0].slice(0, 26) + '…' : x[0]),
             datasets: [{ data: grpI.map((x) => x[1]), backgroundColor: '#1E3A8A', borderRadius: 4 }] },
     options: {
       responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false },
-        tooltip: { callbacks: { label: (ctx) => ` ${ctx.parsed.x} ocorrência(s)` } } },
+      plugins: {
+        legend: { display: false },
+        datalabels: {
+          display: true,
+          anchor: 'end', align: 'right', offset: 4,
+          color: rzVar('--texto-2'), font: { family: 'Barlow', size: 10, weight: '600' },
+          formatter: (v) => v + 'x',
+          clip: false,
+        },
+        tooltip: { callbacks: { label: (ctx) => ` ${ctx.parsed.x} ocorrência(s)` } }
+      },
+      layout: { padding: { right: 48 } },
       scales: {
         x: { ticks: { color: rzVar('--texto-3'), font: { family: 'Barlow', size: 11 } }, grid: { color: rzVar('--linha') } },
         y: { ticks: { color: rzVar('--texto-3'), font: { family: 'Barlow', size: 11 } }, grid: { color: rzVar('--linha') } }
@@ -775,9 +868,13 @@ function renderManutCharts(df) {
     }
   });
 
+  // Por fornecedor — barras horizontais com rótulos
   const grpF = manutAgrupar(df, 'fornecedor').slice(0, 12);
-  criarChart('mchart-forn', optsBarHoriz(grpF.map((x) => x[0]), grpF.map((x) => x[1]),
-    grpF.map((_, i) => PAL_GRAFICO[i % PAL_GRAFICO.length] + 'dd')));
+  criarChart('mchart-forn', optsBarHoriz(
+    grpF.map((x) => x[0]),
+    grpF.map((x) => x[1]),
+    grpF.map((_, i) => PAL_GRAFICO[i % PAL_GRAFICO.length] + 'dd')
+  ));
 }
 
 let _manutPlacaDetalhe = '';  // filtro de placa exclusivo do detalhamento
