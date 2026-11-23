@@ -138,7 +138,26 @@ async function api(caminho) {
 // ------------------------------------------------------------------ //
 
 let abaAtiva = 'indicadores';
-let _manutDados = null;        // dados de manutenção (carregados na 1ª vez)
+const MANUT_STORAGE_KEY = 'frota_manut_v1';
+
+function manutSalvar(dados) {
+  try { localStorage.setItem(MANUT_STORAGE_KEY, JSON.stringify(dados)); } catch (_) {}
+}
+function manutCarregarStorage() {
+  try {
+    const raw = localStorage.getItem(MANUT_STORAGE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (_) {}
+  return null;
+}
+// Mescla novos registros ignorando OSMs já existentes
+function manutMesclar(existentes, novos) {
+  const osmsConhecidos = new Set(existentes.map((r) => r.osm).filter(Boolean));
+  const adicionados = novos.filter((r) => !r.osm || !osmsConhecidos.has(r.osm));
+  return [...existentes, ...adicionados];
+}
+
+let _manutDados = manutCarregarStorage();  // dados de manutenção (persistidos no navegador)
 let _manutFiltros = { tipo: '', contrato: '', cc: '', modelo: '', cat: '' };
 let _manutBusca = '';
 let _manutSortCol = 'data'; let _manutSortDir = 1;
@@ -885,8 +904,14 @@ function configurarManutencao() {
     if (status) status.textContent = 'Lendo…';
     try {
       const text = await file.text();
-      _manutDados = parsearCsvManut(text);
-      if (status) status.textContent = `✓ ${_manutDados.length} registros carregados`;
+      const novos = parsearCsvManut(text);
+      const anteriores = _manutDados || [];
+      _manutDados = manutMesclar(anteriores, novos);
+      manutSalvar(_manutDados);
+      const adicionados = _manutDados.length - anteriores.length;
+      if (status) status.textContent = adicionados > 0
+        ? `✓ ${adicionados} novos registros adicionados (total: ${_manutDados.length})`
+        : `✓ Nenhum registro novo — ${_manutDados.length} registros no total`;
       popularSelectsManut();
       atualizarManut();
     } catch (err) {
