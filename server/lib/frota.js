@@ -329,9 +329,18 @@ export function criarRouterFrota() {
     const periodo = ['hoje', '7dias', '30dias', 'mes'].includes(req.query.periodo)
       ? req.query.periodo : '30dias';
 
+    // Filtros adicionais
+    const filtroPlaca = (req.query.placa || '').trim().toUpperCase() || null;
+    const filtroPosto = (req.query.posto || '').trim() || null;
+    const filtroMes   = (req.query.mes   || '').trim() || null; // "YYYY-MM"
+
     const agora = new Date();
     let dataInicio;
-    if (periodo === 'hoje') {
+    if (filtroMes) {
+      // Se filtro de mês específico, ignora período e usa o mês inteiro
+      const [ano, mes] = filtroMes.split('-').map(Number);
+      dataInicio = new Date(ano, mes - 1, 1);
+    } else if (periodo === 'hoje') {
       dataInicio = new Date(agora); dataInicio.setHours(0,0,0,0);
     } else if (periodo === '7dias') {
       dataInicio = new Date(agora); dataInicio.setDate(agora.getDate() - 7);
@@ -342,16 +351,10 @@ export function criarRouterFrota() {
     }
     const dtIso = dataInicio.toISOString();
 
-    try {
-      // Busca todos os abastecimentos do período (sem bombonas)
-      // Paginação: até 5000 registros
-      const rows = await sbFetch(
-        `/requests?select=plate,vehicle,gas_station,fuel_type,liters,km,km_before,price_per_liter,real_value,date` +
-        `&status=in.(completed,signed)&plate=not.is.null&date=gte.${encodeURIComponent(dtIso)}` +
-        `&order=date.asc&limit=5000`,
-        { headers: { 'Prefer': 'count=none' } }
-      );
+    // Para histórico mensal buscamos sempre 13 meses atrás (mês atual + 12 anteriores)
+    const dtHistoricoInicio = new Date(agora.getFullYear(), agora.getMonth() - 12, 1).toISOString();
 
+    try {
       // Converte litros de "50.0 L" para número
       function parseLitros(v) {
         if (!v) return 0;
@@ -363,14 +366,37 @@ export function criarRouterFrota() {
         return parseFloat(String(v).replace(/[R$\s]/g,'').replace(',','.')) || 0;
       }
 
+      // Busca todos os abastecimentos dos últimos 13 meses (para histórico + período filtrado)
+      // Uma única chamada evita requests duplicados
+      let url = `/requests?select=plate,vehicle,gas_station,fuel_type,liters,km,km_before,price_per_liter,real_value,date` +
+        `&status=in.(completed,signed)&plate=not.is.null&date=gte.${encodeURIComponent(dtHistoricoInicio)}` +
+        `&order=date.asc&limit=10000`;
+      if (filtroPlaca) url += `&plate=eq.${encodeURIComponent(filtroPlaca)}`;
+      if (filtroPosto) url += `&gas_station=eq.${encodeURIComponent(filtroPosto)}`;
+
+      const todosRows = await sbFetch(url, { headers: { 'Prefer': 'count=none' } });
+
+      // ---- Separa: linhas do período filtrado vs. todos os 13 meses ----
+      const dtInicioMs = new Date(dtIso).getTime();
+      let dtFimMs = Infinity;
+      if (filtroMes) {
+        const [ano, mes] = filtroMes.split('-').map(Number);
+        dtFimMs = new Date(ano, mes, 1).getTime(); // primeiro dia do mês seguinte
+      }
+
+      const rows = todosRows.filter((r) => {
+        const t = new Date(r.date).getTime();
+        return t >= dtInicioMs && t < dtFimMs;
+      });
+
+      // ---- Agrega período filtrado ----
       let totalLitros = 0;
       let totalKmRodados = 0;
       let totalValor = 0;
-      let countKm = 0; // quantas linhas têm km_before válido (para média km/L)
 
-      const porPlaca  = {}; // { litros, kmRodados, contagem }
-      const porPosto  = {}; // { litros, contagem }
-      const porCombustivel = {}; // { litros, contagem }
+      const porPlaca  = {};
+      const porPosto  = {};
+      const porCombustivel = {};
 
       for (const row of rows) {
         const litros = parseLitros(row.liters);
@@ -385,7 +411,7 @@ export function criarRouterFrota() {
         totalValor  += valor;
 
         const kmRodados = (km > 0 && kmBef > 0 && km > kmBef) ? (km - kmBef) : 0;
-        if (kmRodados > 0) { totalKmRodados += kmRodados; countKm++; }
+        if (kmRodados > 0) totalKmRodados += kmRodados;
 
         if (placa) {
           if (!porPlaca[placa]) porPlaca[placa] = { litros:0, kmRodados:0, contagem:0 };
@@ -405,22 +431,19 @@ export function criarRouterFrota() {
         }
       }
 
-      // km/L médio geral (soma dos km rodados / soma dos litros dos abastecimentos com km)
       const kmLMedio = (totalKmRodados > 0 && totalLitros > 0)
         ? (totalKmRodados / totalLitros) : null;
 
-      // Lista de placas ordenada por litros desc
       const placas = Object.entries(porPlaca)
         .map(([placa, d]) => ({
           placa,
-          litros:     Math.round(d.litros * 10) / 10,
-          kmRodados:  d.kmRodados,
-          kmL:        (d.kmRodados > 0 && d.litros > 0) ? Math.round(d.kmRodados / d.litros * 100) / 100 : null,
-          contagem:   d.contagem,
+          litros:    Math.round(d.litros * 10) / 10,
+          kmRodados: d.kmRodados,
+          kmL:       (d.kmRodados > 0 && d.litros > 0) ? Math.round(d.kmRodados / d.litros * 100) / 100 : null,
+          contagem:  d.contagem,
         }))
         .sort((a, b) => b.litros - a.litros);
 
-      // Lista de postos ordenada por litros desc
       const postos = Object.entries(porPosto)
         .map(([posto, d]) => ({
           posto,
@@ -429,7 +452,6 @@ export function criarRouterFrota() {
         }))
         .sort((a, b) => b.litros - a.litros);
 
-      // Lista de combustíveis ordenada por litros desc
       const combustiveis = Object.entries(porCombustivel)
         .map(([tipo, d]) => ({
           tipo,
@@ -439,8 +461,42 @@ export function criarRouterFrota() {
         }))
         .sort((a, b) => b.litros - a.litros);
 
+      // ---- Histórico mensal (últimos 13 meses, sem filtro de período) ----
+      // Coleta lista de meses únicos presentes nos dados
+      const porMes = {}; // "YYYY-MM" => { litros, valor, contagem }
+      for (const row of todosRows) {
+        const mesKey = (row.date || '').substring(0, 7); // "YYYY-MM"
+        if (!mesKey) continue;
+        if (!porMes[mesKey]) porMes[mesKey] = { litros: 0, valor: 0, contagem: 0 };
+        porMes[mesKey].litros   += parseLitros(row.liters);
+        porMes[mesKey].valor    += parsePreco(row.real_value) || (parseLitros(row.liters) * parseFloat(row.price_per_liter || 0));
+        porMes[mesKey].contagem += 1;
+      }
+
+      // Ordena cronologicamente e formata
+      const historico = Object.entries(porMes)
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([mes, d]) => ({
+          mes,
+          // Rótulo curto: "Nov/26"
+          rotulo: (() => {
+            const [a, m] = mes.split('-');
+            const nomeMes = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][parseInt(m,10)-1];
+            return `${nomeMes}/${a.slice(2)}`;
+          })(),
+          litros:    Math.round(d.litros * 10) / 10,
+          valor:     Math.round(d.valor * 100) / 100,
+          contagem:  d.contagem,
+        }));
+
+      // ---- Listas de opções para os filtros (baseadas em TODOS os dados) ----
+      const todasPlacas = [...new Set(todosRows.map((r) => (r.plate || '').trim().toUpperCase()).filter(Boolean))].sort();
+      const todosPostos = [...new Set(todosRows.map((r) => (r.gas_station || '').trim()).filter(Boolean))].sort();
+      const todosMeses  = historico.map((h) => ({ mes: h.mes, rotulo: h.rotulo }));
+
       res.json({
-        periodo,
+        periodo: filtroMes ? `mes:${filtroMes}` : periodo,
+        filtros: { placa: filtroPlaca, posto: filtroPosto, mes: filtroMes },
         totalAbastecimentos: rows.length,
         totalLitros:  Math.round(totalLitros * 10) / 10,
         totalValor:   Math.round(totalValor * 100) / 100,
@@ -449,6 +505,8 @@ export function criarRouterFrota() {
         placas,
         postos,
         combustiveis,
+        historico,
+        opcoes: { placas: todasPlacas, postos: todosPostos, meses: todosMeses },
       });
     } catch (err) {
       console.error('[frota/abast-det]', err?.message || err);

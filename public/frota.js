@@ -515,8 +515,19 @@ function htmlLocacao(d) {
 
 const rotulosPeriodo = { hoje: 'Hoje', '7dias': 'Últimos 7 dias', '30dias': 'Últimos 30 dias', mes: 'Este mês' };
 
-// Renderiza a aba de abastecimento: mostra dados básicos imediatamente,
-// carrega dados detalhados em paralelo (postos, placas, combustíveis, km/L).
+// Estado dos filtros de abastecimento
+let _abastFiltros = { placa: '', posto: '', mes: '' };
+
+// Constrói query string com filtros e período
+function _abastQuery() {
+  const p = _abastFiltros.mes ? '' : `periodo=${periodoAbast}`;
+  const pl = _abastFiltros.placa ? `&placa=${encodeURIComponent(_abastFiltros.placa)}` : '';
+  const po = _abastFiltros.posto ? `&posto=${encodeURIComponent(_abastFiltros.posto)}` : '';
+  const me = _abastFiltros.mes   ? `mes=${encodeURIComponent(_abastFiltros.mes)}`     : '';
+  return [p, me, pl, po].filter(Boolean).join('&');
+}
+
+// Renderiza a aba de abastecimento
 async function renderAbastecimento() {
   const el = document.getElementById('conteudo');
   const ab = dadosGlobais?.abastecimento;
@@ -524,7 +535,7 @@ async function renderAbastecimento() {
   const selPeriodo = `
     <div class="periodo-sel" id="selPeriodo">
       ${['hoje','7dias','30dias','mes'].map((p) =>
-        `<button class="periodo-btn${p===periodoAbast?' ativo':''}" data-p="${p}">${rotulosPeriodo[p]}</button>`
+        `<button class="periodo-btn${p===periodoAbast&&!_abastFiltros.mes?' ativo':''}" data-p="${p}">${rotulosPeriodo[p]}</button>`
       ).join('')}
     </div>`;
 
@@ -535,32 +546,55 @@ async function renderAbastecimento() {
     return;
   }
 
-  // Exibe cards básicos imediatamente
   const totalGasto  = ab.totalGasto  ?? ab.total_gasto;
   const totalLitros = ab.totalLitros ?? ab.total_litros;
   const precoMedio  = ab.precoMedio  ?? ab.preco_medio;
   const abastCount  = ab.abastecimentos ?? ab.total ?? ab.count;
 
   el.innerHTML = selPeriodo + `
+    <!-- Barra de filtros -->
+    <div class="abast-filtros" id="abast-filtros">
+      <div class="abast-filtro-grupo">
+        <label class="abast-filtro-label">Placa</label>
+        <select id="abast-sel-placa" class="abast-sel">
+          <option value="">Todas</option>
+        </select>
+      </div>
+      <div class="abast-filtro-grupo">
+        <label class="abast-filtro-label">Posto</label>
+        <select id="abast-sel-posto" class="abast-sel">
+          <option value="">Todos</option>
+        </select>
+      </div>
+      <div class="abast-filtro-grupo">
+        <label class="abast-filtro-label">Mês</label>
+        <select id="abast-sel-mes" class="abast-sel">
+          <option value="">Período acima</option>
+        </select>
+      </div>
+      <button id="abast-btn-limpar" class="abast-btn-limpar" title="Limpar filtros">✕ Limpar filtros</button>
+    </div>
+    <!-- Cards básicos -->
     <div class="abast-grid" id="abast-cards">
       ${totalGasto  != null ? cardInd('Total gasto',    moeda(totalGasto),     'laranja', '') : ''}
       ${totalLitros != null ? cardInd('Litros totais',  num(totalLitros)+' L', '', '') : ''}
       ${precoMedio  != null ? cardInd('Preço médio',    moeda(precoMedio)+'/L', '', '') : ''}
       ${abastCount  != null ? cardInd('Abastecimentos', num(abastCount),       '', '') : ''}
-      <div id="card-kml" class="ind-card"><div class="ind-label">Média km/L</div><div class="ind-valor">carregando…</div></div>
+      <div id="card-kml" class="ind-card"><div class="ind-label">Média km/L</div><div class="ind-valor">—</div></div>
     </div>
-    <div id="abast-detalhes"><div class="estado-global" style="font-size:.9rem;color:var(--texto-2)">Carregando detalhes…</div></div>`;
+    <!-- Área de detalhes e gráficos -->
+    <div id="abast-detalhes"><div class="estado-global" style="font-size:.9rem;color:var(--texto-2)">Carregando…</div></div>`;
 
   configurarPeriodo();
 
-  // Busca detalhes no servidor (pode demorar um pouco)
-  if (_abastDetalhado && _abastDetalhadoPeriodo === periodoAbast) {
+  // Carrega detalhes
+  if (_abastDetalhado && _abastDetalhadoPeriodo === periodoAbast + JSON.stringify(_abastFiltros)) {
     _renderAbastDetalhes(_abastDetalhado);
   } else {
     try {
-      const det = await api('/abastecimento-detalhado?periodo=' + periodoAbast);
+      const det = await api('/abastecimento-detalhado?' + _abastQuery());
       _abastDetalhado = det;
-      _abastDetalhadoPeriodo = periodoAbast;
+      _abastDetalhadoPeriodo = periodoAbast + JSON.stringify(_abastFiltros);
       _renderAbastDetalhes(det);
     } catch (err) {
       const divDet = document.getElementById('abast-detalhes');
@@ -570,6 +604,9 @@ async function renderAbastecimento() {
 }
 
 function _renderAbastDetalhes(det) {
+  // Preenche selects de filtro com as opções disponíveis
+  _preencherFiltrosAbast(det.opcoes || {});
+
   // Atualiza card km/L
   const cardKml = document.getElementById('card-kml');
   if (cardKml) {
@@ -580,7 +617,116 @@ function _renderAbastDetalhes(det) {
       <div class="ind-detalhe">média de L/abast: ${num(det.mediaLPorAbast)} L</div>`;
   }
 
-  // Monta tabelas
+  // ---- Cards comparativos mês atual vs mês anterior ----
+  const hist = det.historico || [];
+  let cardsComp = '';
+  if (hist.length >= 2) {
+    const atual    = hist[hist.length - 1];
+    const anterior = hist[hist.length - 2];
+
+    function variacao(vAtual, vAnt) {
+      if (!vAnt || vAnt === 0) return null;
+      return ((vAtual - vAnt) / vAnt) * 100;
+    }
+    function chipVar(pct) {
+      if (pct == null) return '';
+      const sinal = pct >= 0 ? '▲' : '▼';
+      const cor   = pct >= 0 ? 'var(--alerta)' : 'var(--ok)'; // aumento de gasto é ruim
+      return `<span style="font-size:.78rem;font-weight:700;color:${cor};margin-left:.4rem">${sinal} ${Math.abs(pct).toFixed(1)}%</span>`;
+    }
+    function chipVarL(pct) { // para litros: aumento também é ruim
+      return chipVar(pct);
+    }
+    function chipVarAbast(pct) { // variação de abastecimentos: neutro→laranja se sobe muito
+      if (pct == null) return '';
+      const sinal = pct >= 0 ? '▲' : '▼';
+      const cor   = pct >= 0 ? 'var(--aviso)' : 'var(--ok)';
+      return `<span style="font-size:.78rem;font-weight:700;color:${cor};margin-left:.4rem">${sinal} ${Math.abs(pct).toFixed(1)}%</span>`;
+    }
+
+    const pctValor  = variacao(atual.valor,    anterior.valor);
+    const pctLitros = variacao(atual.litros,   anterior.litros);
+    const pctAbast  = variacao(atual.contagem, anterior.contagem);
+
+    cardsComp = `
+      <div class="secao">
+        <h3 class="secao-titulo">Comparativo: ${esc(atual.rotulo)} vs ${esc(anterior.rotulo)}</h3>
+        <div class="abast-grid" style="margin-top:.75rem">
+          <div class="ind-card">
+            <div class="ind-label">Valor — ${esc(atual.rotulo)}</div>
+            <div class="ind-valor laranja">${moeda(atual.valor)}${chipVar(pctValor)}</div>
+            <div class="ind-detalhe">${esc(anterior.rotulo)}: ${moeda(anterior.valor)}</div>
+          </div>
+          <div class="ind-card">
+            <div class="ind-label">Litros — ${esc(atual.rotulo)}</div>
+            <div class="ind-valor">${num(atual.litros)} L${chipVarL(pctLitros)}</div>
+            <div class="ind-detalhe">${esc(anterior.rotulo)}: ${num(anterior.litros)} L</div>
+          </div>
+          <div class="ind-card">
+            <div class="ind-label">Abastecimentos — ${esc(atual.rotulo)}</div>
+            <div class="ind-valor">${num(atual.contagem)}${chipVarAbast(pctAbast)}</div>
+            <div class="ind-detalhe">${esc(anterior.rotulo)}: ${num(anterior.contagem)}</div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  // ---- Gráficos de evolução mensal ----
+  let graficosHist = '';
+  if (hist.length >= 2) {
+    graficosHist = `
+      <div class="secao">
+        <h3 class="secao-titulo">Evolução mensal</h3>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:1.5rem;margin-top:.75rem">
+          <div class="grafico-card">
+            <div class="grafico-titulo">Valor gasto (R$)</div>
+            <div class="grafico-wrap" style="height:200px"><canvas id="gchart-abast-valor"></canvas></div>
+          </div>
+          <div class="grafico-card">
+            <div class="grafico-titulo">Litros consumidos</div>
+            <div class="grafico-wrap" style="height:200px"><canvas id="gchart-abast-litros"></canvas></div>
+          </div>
+          <div class="grafico-card">
+            <div class="grafico-titulo">Número de abastecimentos</div>
+            <div class="grafico-wrap" style="height:200px"><canvas id="gchart-abast-count"></canvas></div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  // ---- Combustíveis ----
+  const tabelaComb = det.combustiveis?.length ? `
+    <div class="secao">
+      <h3 class="secao-titulo">Tipo de combustível</h3>
+      <div class="grupo-lista">
+        ${det.combustiveis.map((c) => `
+          <div class="grupo-item">
+            <span class="grupo-nome">${esc(c.tipo)}</span>
+            <div class="grupo-barra-wrap"><div class="grupo-barra" style="width:${c.pct}%"></div></div>
+            <span class="grupo-qtd">${num(c.litros)} L (${c.pct.toFixed(1)}%)</span>
+          </div>`).join('')}
+      </div>
+    </div>` : '';
+
+  // ---- Tabela de postos ----
+  const tabelaPostos = det.postos?.length ? `
+    <div class="secao">
+      <h3 class="secao-titulo">Por posto</h3>
+      <div class="tabela-wrap">
+        <table>
+          <thead><tr><th>Posto</th><th style="text-align:right">Litros</th><th style="text-align:right">Abast.</th></tr></thead>
+          <tbody>
+            ${det.postos.map((p) => `<tr>
+              <td>${esc(p.posto)}</td>
+              <td style="text-align:right">${num(p.litros)} L</td>
+              <td style="text-align:right">${p.contagem}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>` : '';
+
+  // ---- Tabela de placas ----
   const tabelaPlacas = det.placas?.length ? `
     <div class="secao">
       <h3 class="secao-titulo">Por placa (${det.placas.length} veículos)</h3>
@@ -610,58 +756,172 @@ function _renderAbastDetalhes(det) {
       </div>
     </div>` : '';
 
-  const tabelaPostos = det.postos?.length ? `
-    <div class="secao">
-      <h3 class="secao-titulo">Por posto (${det.postos.length} postos)</h3>
-      <div class="tabela-wrap">
-        <table>
-          <thead><tr><th>Posto</th><th style="text-align:right">Litros</th><th style="text-align:right">Abast.</th></tr></thead>
-          <tbody>
-            ${det.postos.map((p) => `<tr>
-              <td>${esc(p.posto)}</td>
-              <td style="text-align:right">${num(p.litros)} L</td>
-              <td style="text-align:right">${p.contagem}</td>
-            </tr>`).join('')}
-          </tbody>
-        </table>
-      </div>
-    </div>` : '';
-
-  // Combustíveis com barra de progresso
-  const totalLitrosComb = det.combustiveis?.reduce((s, c) => s + c.litros, 0) || 0;
-  const tabelaComb = det.combustiveis?.length ? `
-    <div class="secao">
-      <h3 class="secao-titulo">Tipo de combustível</h3>
-      <div class="grupo-lista">
-        ${det.combustiveis.map((c) => `
-          <div class="grupo-item">
-            <span class="grupo-nome">${esc(c.tipo)}</span>
-            <div class="grupo-barra-wrap">
-              <div class="grupo-barra" style="width:${c.pct}%"></div>
-            </div>
-            <span class="grupo-qtd">${num(c.litros)} L (${c.pct.toFixed(1)}%)</span>
-          </div>`).join('')}
-      </div>
-    </div>` : '';
-
   const divDet = document.getElementById('abast-detalhes');
-  if (divDet) divDet.innerHTML = `
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:1.5rem">
+  if (!divDet) return;
+
+  divDet.innerHTML = `
+    ${cardsComp}
+    ${graficosHist}
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:1.5rem;margin-top:1.5rem">
       ${tabelaComb}
       ${tabelaPostos}
     </div>
     ${tabelaPlacas}`;
+
+  // Renderiza os gráficos de evolução (depois de inserir no DOM)
+  if (hist.length >= 2) {
+    const labels  = hist.map((h) => h.rotulo);
+    const valores = hist.map((h) => h.valor);
+    const litros  = hist.map((h) => h.litros);
+    const counts  = hist.map((h) => h.contagem);
+
+    // Gráfico Valor
+    criarChart('gchart-abast-valor', {
+      type: 'bar',
+      data: { labels, datasets: [{ data: valores, backgroundColor: '#F7931E99', borderColor: '#F7931E',
+        borderWidth: 2, borderRadius: 4, hoverBackgroundColor: '#F7931E' }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          datalabels: {
+            display: true, anchor: 'end', align: 'top', offset: 2,
+            color: rzVar('--texto-2'), font: { family: 'Barlow', size: 9, weight: '600' },
+            formatter: (v) => v >= 1000
+              ? 'R$' + (v/1000).toFixed(1) + 'k'
+              : moeda(v),
+            clip: false,
+          },
+          tooltip: { callbacks: { label: (ctx) => ` ${moeda(ctx.parsed.y)}` } }
+        },
+        layout: { padding: { top: 28 } },
+        scales: {
+          x: { ticks: { color: rzVar('--texto-3'), font: { family: 'Barlow', size: 10 }, maxRotation: 45 }, grid: { color: rzVar('--linha') } },
+          y: { ticks: { color: rzVar('--texto-3'), font: { family: 'Barlow', size: 10 },
+            callback: (v) => v >= 1000 ? 'R$'+(v/1000).toFixed(0)+'k' : moeda(v) }, grid: { color: rzVar('--linha') } }
+        }
+      }
+    });
+
+    // Gráfico Litros
+    criarChart('gchart-abast-litros', {
+      type: 'bar',
+      data: { labels, datasets: [{ data: litros, backgroundColor: '#1E3A8A99', borderColor: '#1E3A8A',
+        borderWidth: 2, borderRadius: 4, hoverBackgroundColor: '#1E3A8A' }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          datalabels: {
+            display: true, anchor: 'end', align: 'top', offset: 2,
+            color: rzVar('--texto-2'), font: { family: 'Barlow', size: 9, weight: '600' },
+            formatter: (v) => v >= 1000 ? (v/1000).toFixed(1) + 'k L' : num(v) + ' L',
+            clip: false,
+          },
+          tooltip: { callbacks: { label: (ctx) => ` ${num(ctx.parsed.y)} L` } }
+        },
+        layout: { padding: { top: 28 } },
+        scales: {
+          x: { ticks: { color: rzVar('--texto-3'), font: { family: 'Barlow', size: 10 }, maxRotation: 45 }, grid: { color: rzVar('--linha') } },
+          y: { ticks: { color: rzVar('--texto-3'), font: { family: 'Barlow', size: 10 },
+            callback: (v) => v >= 1000 ? (v/1000).toFixed(0)+'k' : v }, grid: { color: rzVar('--linha') } }
+        }
+      }
+    });
+
+    // Gráfico Contagem
+    criarChart('gchart-abast-count', {
+      type: 'bar',
+      data: { labels, datasets: [{ data: counts, backgroundColor: '#0D948899', borderColor: '#0D9488',
+        borderWidth: 2, borderRadius: 4, hoverBackgroundColor: '#0D9488' }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          datalabels: {
+            display: true, anchor: 'end', align: 'top', offset: 2,
+            color: rzVar('--texto-2'), font: { family: 'Barlow', size: 9, weight: '600' },
+            formatter: (v) => String(v),
+            clip: false,
+          },
+          tooltip: { callbacks: { label: (ctx) => ` ${ctx.parsed.y} abastecimentos` } }
+        },
+        layout: { padding: { top: 20 } },
+        scales: {
+          x: { ticks: { color: rzVar('--texto-3'), font: { family: 'Barlow', size: 10 }, maxRotation: 45 }, grid: { color: rzVar('--linha') } },
+          y: { ticks: { color: rzVar('--texto-3'), font: { family: 'Barlow', size: 10 }, stepSize: 1 }, grid: { color: rzVar('--linha') } }
+        }
+      }
+    });
+  }
+}
+
+// Preenche os selects de filtro com as opções vindas da API
+function _preencherFiltrosAbast(opcoes) {
+  const selPlaca = document.getElementById('abast-sel-placa');
+  const selPosto = document.getElementById('abast-sel-posto');
+  const selMes   = document.getElementById('abast-sel-mes');
+  if (!selPlaca || !selPosto || !selMes) return;
+
+  // Placa
+  const placas = opcoes.placas || [];
+  selPlaca.innerHTML = '<option value="">Todas</option>' +
+    placas.map((p) => `<option value="${esc(p)}"${_abastFiltros.placa===p?' selected':''}>${esc(p)}</option>`).join('');
+
+  // Posto
+  const postos = opcoes.postos || [];
+  selPosto.innerHTML = '<option value="">Todos</option>' +
+    postos.map((p) => `<option value="${esc(p)}"${_abastFiltros.posto===p?' selected':''}>${esc(p)}</option>`).join('');
+
+  // Mês
+  const meses = opcoes.meses || [];
+  selMes.innerHTML = '<option value="">Período acima</option>' +
+    meses.slice().reverse().map((m) => `<option value="${esc(m.mes)}"${_abastFiltros.mes===m.mes?' selected':''}>${esc(m.rotulo)}</option>`).join('');
+
+  // Eventos dos selects
+  selPlaca.onchange = () => { _abastFiltros.placa = selPlaca.value; _recarregarDetAbast(); };
+  selPosto.onchange = () => { _abastFiltros.posto = selPosto.value; _recarregarDetAbast(); };
+  selMes.onchange   = () => {
+    _abastFiltros.mes = selMes.value;
+    // Se selecionou mês específico, retira destaque dos botões de período
+    document.querySelectorAll('.periodo-btn').forEach((b) => b.classList.toggle('ativo', !_abastFiltros.mes && b.dataset.p === periodoAbast));
+    _recarregarDetAbast();
+  };
+
+  // Botão limpar filtros
+  const btnLimpar = document.getElementById('abast-btn-limpar');
+  if (btnLimpar) {
+    btnLimpar.onclick = () => {
+      _abastFiltros = { placa: '', posto: '', mes: '' };
+      _abastDetalhado = null;
+      renderAbastecimento();
+    };
+  }
+}
+
+async function _recarregarDetAbast() {
+  _abastDetalhado = null;
+  const divDet = document.getElementById('abast-detalhes');
+  if (divDet) divDet.innerHTML = '<div class="estado-global" style="font-size:.9rem;color:var(--texto-2)">Carregando…</div>';
+  try {
+    const det = await api('/abastecimento-detalhado?' + _abastQuery());
+    _abastDetalhado = det;
+    _abastDetalhadoPeriodo = periodoAbast + JSON.stringify(_abastFiltros);
+    _renderAbastDetalhes(det);
+  } catch (err) {
+    const dv = document.getElementById('abast-detalhes');
+    if (dv) dv.innerHTML = `<div class="aviso-erro">⚠️ ${esc(err.message)}</div>`;
+  }
 }
 
 function configurarPeriodo() {
   document.querySelectorAll('.periodo-btn').forEach((btn) => {
     btn.addEventListener('click', async () => {
-      if (btn.dataset.p === periodoAbast) return;
+      if (btn.dataset.p === periodoAbast && !_abastFiltros.mes) return;
       periodoAbast = btn.dataset.p;
-      _abastDetalhado = null; // invalida cache do período anterior
-      // Atualiza visual imediatamente
+      _abastFiltros.mes = ''; // limpa filtro de mês ao clicar no período
+      _abastDetalhado = null;
       document.querySelectorAll('.periodo-btn').forEach((b) => b.classList.toggle('ativo', b.dataset.p === periodoAbast));
-      // Busca abastecimento básico e detalhado
       try {
         const ab = await api('/abastecimento?periodo=' + periodoAbast);
         dadosGlobais = { ...dadosGlobais, abastecimento: ab };
