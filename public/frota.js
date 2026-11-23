@@ -993,18 +993,20 @@ function renderManutCharts(df) {
   const altItens = Math.max(200, grpI.length * 32 + 60);
   document.getElementById('mchart-itens-wrap').style.height = altItens + 'px';
   criarChart('mchart-itens', {
-    type: 'bar', indexAxis: 'y',
+    type: 'bar',
     data: { labels: grpI.map((x) => x[0].length > 28 ? x[0].slice(0, 26) + '…' : x[0]),
             datasets: [{ data: grpI.map((x) => x[1]), backgroundColor: '#1E3A8A', borderRadius: 4 }] },
     options: {
+      indexAxis: 'y',
       responsive: true, maintainAspectRatio: false,
       plugins: {
         legend: { display: false },
         datalabels: {
           display: true,
-          anchor: 'end', align: 'right', offset: 4,
+          anchor: 'end', align: 'end', offset: 4,
           color: rzVar('--texto-2'), font: { family: 'Barlow', size: 10, weight: '600' },
           formatter: (v) => v + 'x',
+          clamp: true,
           clip: false,
         },
         tooltip: { callbacks: { label: (ctx) => ` ${ctx.parsed.x} ocorrência(s)` } }
