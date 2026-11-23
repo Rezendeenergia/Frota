@@ -40,8 +40,8 @@ async function sbFetch(path, opts = {}) {
 
 // Gera chave de deduplicação para um registro de manutenção
 function manutChave(r) {
-  // OSM é o identificador principal; quando não existe usa placa+data+item
-  if (r.osm) return `osm:${r.osm.trim()}`;
+  // OSM + item: uma OSM pode ter múltiplas linhas (peças/serviços diferentes)
+  if (r.osm) return `osm:${r.osm.trim()}|item:${(r.item||'').trim()}`;
   return `pfdi:${(r.placa||'').trim()}|${(r.data||'').trim()}|${(r.item||'').trim()}`;
 }
 
