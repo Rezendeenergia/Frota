@@ -229,11 +229,36 @@ function manutCarregarCache() {
   return null;
 }
 
-// Carrega do servidor; atualiza cache local e _manutDados
+// Carrega do servidor; atualiza cache local e _manutDados.
+// Se o servidor estiver vazio mas o cache local tiver dados, sincroniza automaticamente.
 async function manutCarregarServidor() {
   try {
     const resp = await api('/frota/manut');
     const dados = resp.registros || [];
+
+    // Servidor vazio mas cache local tem dados → sincroniza (migração ou reimportação necessária)
+    if (dados.length === 0) {
+      const cacheLocal = manutCarregarCache();
+      if (cacheLocal && cacheLocal.length > 0) {
+        console.info(`[manut] servidor sem dados; enviando ${cacheLocal.length} registros do cache local…`);
+        try {
+          await manutEnviarServidor(cacheLocal);
+          console.info('[manut] sincronização automática concluída');
+          // Busca novamente para confirmar
+          const resp2 = await api('/frota/manut');
+          const confirmado = resp2.registros || [];
+          _manutDados = confirmado;
+          manutSalvarCache(confirmado);
+          return confirmado;
+        } catch (errSync) {
+          console.warn('[manut] falha na sincronização automática:', errSync?.message);
+          // Mantém cache local como fallback
+          _manutDados = cacheLocal;
+          return cacheLocal;
+        }
+      }
+    }
+
     _manutDados = dados;
     manutSalvarCache(dados);
     return dados;
@@ -1459,29 +1484,37 @@ function configurarManutencao() {
         return;
       }
 
-      // Mescla local para preview imediato
-      const anteriores = _manutDados || [];
-      const mesclado = manutMesclarLocal(anteriores, novos);
-      const adicionadosLocal = mesclado.length - anteriores.length;
+      // Verifica o que o servidor já tem (fonte da verdade)
+      if (status) status.textContent = 'Verificando dados no servidor…';
+      let noServidor = [];
+      try {
+        const respSrv = await api('/frota/manut');
+        noServidor = respSrv.registros || [];
+      } catch (_) { /* usa array vazio se falhar */ }
 
-      if (adicionadosLocal === 0) {
-        if (status) status.textContent = `✓ Nenhum registro novo — ${anteriores.length} registros no total`;
-        return;
-      }
+      // Mescla com o que o servidor já tem (não com o cache local)
+      const mesclado = manutMesclarLocal(noServidor, novos);
+      const adicionadosServidor = mesclado.length - noServidor.length;
 
-      // Exibe imediatamente no painel
+      // Atualiza exibição local imediatamente com todos os dados mesclados
       _manutDados = mesclado;
       manutSalvarCache(mesclado);
       popularSelectsManut();
       atualizarManut();
-      if (status) status.textContent = `Salvando ${adicionadosLocal} registros novos no servidor…`;
+
+      if (adicionadosServidor === 0) {
+        if (status) status.textContent = `✓ Nenhum registro novo — ${noServidor.length} registros no servidor`;
+        return;
+      }
+
+      if (status) status.textContent = `Salvando ${adicionadosServidor} registros novos no servidor…`;
 
       // Envia apenas os novos ao servidor
-      const novosParaEnviar = mesclado.slice(anteriores.length); // os que foram acrescentados
+      const novosParaEnviar = mesclado.slice(noServidor.length); // os que foram acrescentados
       try {
         const resp = await manutEnviarServidor(novosParaEnviar);
         if (status) status.textContent =
-          `✓ ${adicionadosLocal} novos registros salvos (total no servidor: ${resp.total})`;
+          `✓ ${adicionadosServidor} novos registros salvos (total no servidor: ${resp.total})`;
         // Recarrega do servidor para garantir consistência
         const atualizado = await manutCarregarServidor();
         if (atualizado.length) { _manutDados = atualizado; popularSelectsManut(); atualizarManut(); }
