@@ -6,12 +6,44 @@
 //   FROTA_SESSION_SECRET   — assina o cookie de sessão   [obrigatória]
 //   FROTA_REDIRECT_URI     — URL de callback (padrão: montado pelo host)
 //   VEICULOS_SHARE_URL     — link de compartilhamento da planilha de veículos
+//   RAST_SUPABASE_URL / RAST_SUPABASE_SERVICE_KEY — banco Supabase Abast
 
 import express from 'express';
 import crypto from 'node:crypto';
 import { ConfidentialClientApplication } from '@azure/msal-node';
 import { fetchFrota } from './frotaService.js';
 import { fetchAbastecimento } from './abastecimentoService.js';
+
+// ---------------- Supabase (banco Abast) ----------------
+const SB_URL = (process.env.RAST_SUPABASE_URL || 'https://horvznvaytzhwrmwjwxv.supabase.co').replace(/\/$/, '');
+const SB_KEY = process.env.RAST_SUPABASE_SERVICE_KEY || '';
+
+async function sbFetch(path, opts = {}) {
+  if (!SB_KEY) throw new Error('RAST_SUPABASE_SERVICE_KEY não configurada.');
+  const res = await fetch(`${SB_URL}/rest/v1${path}`, {
+    ...opts,
+    headers: {
+      'apikey': SB_KEY,
+      'Authorization': `Bearer ${SB_KEY}`,
+      'Content-Type': 'application/json',
+      'Prefer': 'return=representation',
+      ...(opts.headers || {}),
+    },
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '');
+    throw new Error(`Supabase ${path}: ${res.status} — ${txt.slice(0, 200)}`);
+  }
+  if (res.status === 204) return [];
+  return res.json();
+}
+
+// Gera chave de deduplicação para um registro de manutenção
+function manutChave(r) {
+  // OSM é o identificador principal; quando não existe usa placa+data+item
+  if (r.osm) return `osm:${r.osm.trim()}`;
+  return `pfdi:${(r.placa||'').trim()}|${(r.data||'').trim()}|${(r.item||'').trim()}`;
+}
 
 const SESSION_SECRET = process.env.FROTA_SESSION_SECRET || process.env.RAST_SESSION_SECRET || '';
 const COOKIE        = 'frota_sess';
@@ -209,6 +241,80 @@ export function criarRouterFrota() {
     } catch (err) {
       console.error('[frota] abastecimento:', err?.message || err);
       res.status(502).json({ erro: 'Falha ao carregar dados de abastecimento.' });
+    }
+  });
+
+  // ------------------------------------------------------------------ //
+  // Manutenção — histórico persistente no Supabase
+  // ------------------------------------------------------------------ //
+
+  // GET /api/frota/manut — carrega todos os registros salvos
+  r.get('/manut', autenticar, async (req, res) => {
+    try {
+      const rows = await sbFetch('/frota_manut_registros?select=osm,placa,modelo,data,tipo,cat,item,vt,status,obs&order=data.desc&limit=10000');
+      res.json({ registros: rows });
+    } catch (err) {
+      console.error('[frota/manut] carregar:', err?.message || err);
+      res.status(502).json({ erro: 'Falha ao carregar dados de manutenção.' });
+    }
+  });
+
+  // POST /api/frota/manut — salva lote de registros (ignora duplicados pela chave)
+  r.post('/manut', autenticar, express.json({ limit: '5mb' }), async (req, res) => {
+    try {
+      const { registros } = req.body || {};
+      if (!Array.isArray(registros) || registros.length === 0) {
+        return res.status(400).json({ erro: 'Campo "registros" ausente ou vazio.' });
+      }
+
+      // Monta os objetos com a chave de deduplicação
+      const payload = registros.map((r) => ({
+        chave:   manutChave(r),
+        osm:     r.osm     || null,
+        placa:   r.placa   || null,
+        modelo:  r.modelo  || null,
+        data:    r.data    || null,
+        tipo:    r.tipo    || null,
+        cat:     r.cat     || null,
+        item:    r.item    || null,
+        vt:      Number(r.vt) || 0,
+        status:  r.status  || null,
+        obs:     r.obs     || null,
+      }));
+
+      // Upsert: ignora conflito na chave única (não sobrescreve o que já existe)
+      await sbFetch('/frota_manut_registros?on_conflict=chave', {
+        method: 'POST',
+        headers: { 'Prefer': 'resolution=ignore-duplicates,return=minimal' },
+        body: JSON.stringify(payload),
+      });
+
+      // Conta total de registros após o upsert
+      const countRes = await fetch(`${SB_URL}/rest/v1/frota_manut_registros?select=id`, {
+        headers: {
+          'apikey': SB_KEY,
+          'Authorization': `Bearer ${SB_KEY}`,
+          'Prefer': 'count=exact',
+          'Range': '0-0',
+        },
+      });
+      const totalStr = countRes.headers.get('content-range') || '*/0';
+      const total = Number(totalStr.split('/')[1]) || 0;
+      res.json({ total, mensagem: 'Registros salvos com sucesso.' });
+    } catch (err) {
+      console.error('[frota/manut] salvar:', err?.message || err);
+      res.status(502).json({ erro: 'Falha ao salvar dados de manutenção.' });
+    }
+  });
+
+  // DELETE /api/frota/manut — apaga todos os registros (limpar histórico)
+  r.delete('/manut', autenticar, async (req, res) => {
+    try {
+      await sbFetch('/frota_manut_registros?id=gte.0', { method: 'DELETE' });
+      res.json({ mensagem: 'Histórico de manutenção apagado.' });
+    } catch (err) {
+      console.error('[frota/manut] apagar:', err?.message || err);
+      res.status(502).json({ erro: 'Falha ao apagar histórico.' });
     }
   });
 

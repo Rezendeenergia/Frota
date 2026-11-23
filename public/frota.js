@@ -188,8 +188,8 @@ function esc(s) {
 // API
 // ------------------------------------------------------------------ //
 
-async function api(caminho) {
-  const r = await fetch('/api/frota' + caminho);
+async function api(caminho, opts = {}) {
+  const r = await fetch('/api/frota' + caminho, opts);
   if (r.status === 401) {
     window.location.href = '/frota/login?erro=sessao_expirada';
     throw new Error('Sessão expirada.');
@@ -198,6 +198,8 @@ async function api(caminho) {
     const corpo = await r.json().catch(() => ({}));
     throw new Error(corpo.erro || `Erro ${r.status}`);
   }
+  // DELETE retorna 200 com JSON ou 204 sem corpo
+  if (r.status === 204) return {};
   return r.json();
 }
 
@@ -206,29 +208,61 @@ async function api(caminho) {
 // ------------------------------------------------------------------ //
 
 let abaAtiva = 'indicadores';
-const MANUT_STORAGE_KEY = 'frota_manut_v2'; // v2: parser RFC 4180, dados v1 descartados
+// v3: dados persistidos no Supabase via /api/frota/manut (não mais localStorage)
+// localStorage ainda guarda uma cópia local como cache offline
+const MANUT_STORAGE_KEY = 'frota_manut_v3';
 
-function manutSalvar(dados) {
+function manutSalvarCache(dados) {
   try {
     if (dados == null) localStorage.removeItem(MANUT_STORAGE_KEY);
     else localStorage.setItem(MANUT_STORAGE_KEY, JSON.stringify(dados));
   } catch (_) {}
 }
-function manutCarregarStorage() {
+function manutCarregarCache() {
   try {
     const raw = localStorage.getItem(MANUT_STORAGE_KEY);
     if (raw) return JSON.parse(raw);
   } catch (_) {}
   return null;
 }
-// Mescla novos registros ignorando OSMs já existentes
-function manutMesclar(existentes, novos) {
-  const osmsConhecidos = new Set(existentes.map((r) => r.osm).filter(Boolean));
-  const adicionados = novos.filter((r) => !r.osm || !osmsConhecidos.has(r.osm));
+
+// Carrega do servidor; atualiza cache local e _manutDados
+async function manutCarregarServidor() {
+  try {
+    const resp = await api('/frota/manut');
+    const dados = resp.registros || [];
+    _manutDados = dados;
+    manutSalvarCache(dados);
+    return dados;
+  } catch (err) {
+    console.warn('[manut] falha ao carregar do servidor; usando cache local:', err?.message);
+    return manutCarregarCache() || [];
+  }
+}
+
+// Envia novos registros ao servidor; retorna { adicionados, total }
+async function manutEnviarServidor(novosRegistros) {
+  const resp = await api('/frota/manut', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ registros: novosRegistros }),
+  });
+  return resp; // { total, mensagem }
+}
+
+// Mescla local para preview imediato antes de confirmar no servidor
+function manutMesclarLocal(existentes, novos) {
+  // Deduplicação pela mesma lógica do servidor (OSM ou placa+data+item)
+  function chave(r) {
+    if (r.osm) return `osm:${r.osm.trim()}`;
+    return `pfdi:${(r.placa||'').trim()}|${(r.data||'').trim()}|${(r.item||'').trim()}`;
+  }
+  const conhecidos = new Set(existentes.map(chave));
+  const adicionados = novos.filter((r) => !conhecidos.has(chave(r)));
   return [...existentes, ...adicionados];
 }
 
-let _manutDados = manutCarregarStorage();  // dados de manutenção (persistidos no navegador)
+let _manutDados = manutCarregarCache();  // inicia com cache; substituído ao carregar do servidor
 let _manutFiltros = { mes: '', tipo: '', tipoManut: '', placa: '' };
 let _manutBusca = '';
 let _manutSortCol = 'data'; let _manutSortDir = 1;
@@ -321,11 +355,10 @@ function renderizarAba(nome) {
   if (nome === 'indicadores') el.innerHTML = htmlIndicadores(dadosGlobais);
   else if (nome === 'locacao') el.innerHTML = htmlLocacao(dadosGlobais);
   else if (nome === 'abastecimento') el.innerHTML = htmlAbastecimento(dadosGlobais);
-  else if (nome === 'manutencao') renderManutencao();
+  else if (nome === 'manutencao') { renderManutencao().then(() => configurarManutencao()); return; }
   else if (nome === 'rastreamento') el.innerHTML = htmlRastreamento();
 
   if (nome === 'abastecimento') configurarPeriodo();
-  if (nome === 'manutencao') configurarManutencao();
 }
 
 // ------------------------------------------------------------------ //
@@ -984,15 +1017,28 @@ function atualizarManut() {
   if (abaAtiva === 'indicadores') renderizarAba('indicadores');
 }
 
-function renderManutencao() {
+async function renderManutencao() {
   const el = document.getElementById('conteudo');
   el.innerHTML = htmlManutencaoShell();
   popularSelectsManut();
 
-  if (_manutDados) {
+  if (_manutDados && _manutDados.length) {
+    // Exibe cache local imediatamente enquanto busca atualização do servidor
     atualizarManut();
   } else {
-    // Nenhum dado ainda — mostra prompt de upload
+    document.getElementById('mkpi-grid').innerHTML =
+      `<div style="grid-column:1/-1;padding:1.5rem;text-align:center;color:var(--texto-3);font-size:.9rem">
+         Carregando dados…
+       </div>`;
+  }
+
+  // Carrega (ou atualiza) do servidor em background
+  const dadosServidor = await manutCarregarServidor();
+  if (dadosServidor.length) {
+    _manutDados = dadosServidor;
+    popularSelectsManut();
+    atualizarManut();
+  } else if (!(_manutDados && _manutDados.length)) {
     document.getElementById('mkpi-grid').innerHTML =
       `<div style="grid-column:1/-1;padding:1.5rem;text-align:center;color:var(--texto-3);font-size:.9rem">
          Importe o arquivo CSV do sistema de manutenção para visualizar os indicadores.
@@ -1065,33 +1111,70 @@ function configurarManutencao() {
     const file = e.target.files[0];
     if (!file) return;
     const status = document.getElementById('manut-csv-status');
-    if (status) status.textContent = 'Lendo…';
+    if (status) status.textContent = 'Lendo arquivo…';
     try {
       const text = await file.text();
       const novos = parsearCsvManut(text);
+      if (!novos.length) {
+        if (status) status.textContent = '✗ Arquivo sem registros reconhecidos.';
+        return;
+      }
+
+      // Mescla local para preview imediato
       const anteriores = _manutDados || [];
-      _manutDados = manutMesclar(anteriores, novos);
-      manutSalvar(_manutDados);
-      const adicionados = _manutDados.length - anteriores.length;
-      if (status) status.textContent = adicionados > 0
-        ? `✓ ${adicionados} novos registros adicionados (total: ${_manutDados.length})`
-        : `✓ Nenhum registro novo — ${_manutDados.length} registros no total`;
+      const mesclado = manutMesclarLocal(anteriores, novos);
+      const adicionadosLocal = mesclado.length - anteriores.length;
+
+      if (adicionadosLocal === 0) {
+        if (status) status.textContent = `✓ Nenhum registro novo — ${anteriores.length} registros no total`;
+        return;
+      }
+
+      // Exibe imediatamente no painel
+      _manutDados = mesclado;
+      manutSalvarCache(mesclado);
       popularSelectsManut();
       atualizarManut();
+      if (status) status.textContent = `Salvando ${adicionadosLocal} registros novos no servidor…`;
+
+      // Envia apenas os novos ao servidor
+      const novosParaEnviar = mesclado.slice(anteriores.length); // os que foram acrescentados
+      try {
+        const resp = await manutEnviarServidor(novosParaEnviar);
+        if (status) status.textContent =
+          `✓ ${adicionadosLocal} novos registros salvos (total no servidor: ${resp.total})`;
+        // Recarrega do servidor para garantir consistência
+        const atualizado = await manutCarregarServidor();
+        if (atualizado.length) { _manutDados = atualizado; popularSelectsManut(); atualizarManut(); }
+      } catch (errSrv) {
+        console.error('[manut] erro ao salvar no servidor:', errSrv?.message);
+        if (status) status.textContent =
+          `⚠ Exibido localmente mas não foi possível salvar no servidor. Tente novamente.`;
+      }
     } catch (err) {
       if (status) status.textContent = '✗ Erro ao ler arquivo';
       console.error('CSV manutenção:', err);
     }
+    // Limpa o input para permitir re-enviar o mesmo arquivo
+    e.target.value = '';
   });
 
-  // Limpar todos os dados de manutenção
-  document.getElementById('mbtn-limpar-dados')?.addEventListener('click', () => {
-    if (!confirm('Tem certeza? Todos os registros de manutenção serão removidos e não poderão ser recuperados.')) return;
-    _manutDados = null;
-    manutSalvar(null);
-    // Recarrega o painel zerado
-    renderManutencao();
-    configurarManutencao();
+  // Limpar todos os dados de manutenção (apaga no servidor também)
+  document.getElementById('mbtn-limpar-dados')?.addEventListener('click', async () => {
+    if (!confirm('Tem certeza? Todos os registros de manutenção serão removidos do servidor e não poderão ser recuperados.')) return;
+    const status = document.getElementById('manut-csv-status');
+    if (status) status.textContent = 'Apagando…';
+    try {
+      await api('/frota/manut', { method: 'DELETE' });
+      _manutDados = null;
+      manutSalvarCache(null);
+      if (status) status.textContent = 'Histórico apagado.';
+      await renderManutencao();
+      configurarManutencao();
+    } catch (err) {
+      if (status) status.textContent = '✗ Erro ao apagar dados no servidor.';
+      console.error('[manut] apagar:', err?.message);
+    }
   });
 
   // Atualiza cores quando o tema muda
