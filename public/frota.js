@@ -206,7 +206,7 @@ async function api(caminho) {
 // ------------------------------------------------------------------ //
 
 let abaAtiva = 'indicadores';
-const MANUT_STORAGE_KEY = 'frota_manut_v1';
+const MANUT_STORAGE_KEY = 'frota_manut_v2'; // v2: parser RFC 4180, dados v1 descartados
 
 function manutSalvar(dados) {
   try {
