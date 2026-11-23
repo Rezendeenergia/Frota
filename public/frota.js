@@ -158,7 +158,7 @@ function manutMesclar(existentes, novos) {
 }
 
 let _manutDados = manutCarregarStorage();  // dados de manutenção (persistidos no navegador)
-let _manutFiltros = { tipo: '', contrato: '', cc: '', modelo: '', cat: '' };
+let _manutFiltros = { tipo: '', contrato: '', modelo: '', cat: '' };
 let _manutBusca = '';
 let _manutSortCol = 'data'; let _manutSortDir = 1;
 let _manutPagina = 1;
@@ -503,7 +503,6 @@ function manutFiltrados() {
   return _manutDados.filter((r) => {
     if (_manutFiltros.tipo     && r.tipo      !== _manutFiltros.tipo)      return false;
     if (_manutFiltros.contrato && r.contrato  !== _manutFiltros.contrato)  return false;
-    if (_manutFiltros.cc       && r.cc        !== _manutFiltros.cc)        return false;
     if (_manutFiltros.modelo   && r.modelo    !== _manutFiltros.modelo)    return false;
     if (_manutFiltros.cat      && r.cat       !== _manutFiltros.cat)       return false;
     return true;
@@ -580,20 +579,12 @@ function htmlManutencaoShell() {
         <select class="manut-sel" id="mf-contrato"><option value="">Todos</option></select>
       </div>
       <div class="manut-filtro-grupo">
-        <span class="manut-filtro-label">Centro de Custo</span>
-        <select class="manut-sel" id="mf-cc"><option value="">Todos</option></select>
-      </div>
-      <div class="manut-filtro-grupo">
         <span class="manut-filtro-label">Modelo</span>
         <select class="manut-sel" id="mf-modelo"><option value="">Todos</option></select>
       </div>
       <div class="manut-filtro-grupo">
         <span class="manut-filtro-label">Categoria</span>
-        <select class="manut-sel" id="mf-cat">
-          <option value="">Todas</option>
-          <option value="Peça">Peça</option>
-          <option value="Serviço">Serviço</option>
-        </select>
+        <select class="manut-sel" id="mf-cat"><option value="">Todas</option></select>
       </div>
       <button class="btn-limpar-manut" id="mbtn-limpar">✕ Limpar</button>
     </div>
@@ -718,8 +709,8 @@ function popularSelectsManut() {
     el.value = val;
   };
   preencherSel('mf-contrato',      uniq('contrato'));
-  preencherSel('mf-cc',            uniq('cc'));
   preencherSel('mf-modelo',        uniq('modelo'));
+  preencherSel('mf-cat',           uniq('cat'));
   preencherSel('mf-placa-detalhe', uniq('placa'));
 }
 
@@ -876,7 +867,7 @@ function renderManutencao() {
 
 function configurarManutencao() {
   // Filtros
-  ['mf-tipo', 'mf-contrato', 'mf-cc', 'mf-modelo', 'mf-cat'].forEach((id) => {
+  ['mf-tipo', 'mf-contrato', 'mf-modelo', 'mf-cat'].forEach((id) => {
     const el = document.getElementById(id);
     if (!el) return;
     el.value = _manutFiltros[id.replace('mf-', '')] || '';
@@ -887,9 +878,9 @@ function configurarManutencao() {
   });
 
   document.getElementById('mbtn-limpar')?.addEventListener('click', () => {
-    _manutFiltros = { tipo: '', contrato: '', cc: '', modelo: '', cat: '' };
+    _manutFiltros = { tipo: '', contrato: '', modelo: '', cat: '' };
     _manutBusca = '';
-    ['mf-tipo', 'mf-contrato', 'mf-cc', 'mf-modelo', 'mf-cat'].forEach((id) => {
+    ['mf-tipo', 'mf-contrato', 'mf-modelo', 'mf-cat'].forEach((id) => {
       const el = document.getElementById(id);
       if (el) el.value = '';
     });
@@ -972,6 +963,14 @@ function configurarManutencao() {
   document.documentElement.addEventListener('rz:tema', atualizarCoresCharts);
 }
 
+// Normaliza o valor de categoria_item para 'Peça' ou 'Serviço'
+function normalizarCat(raw) {
+  const v = raw.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().trim();
+  if (v.startsWith('PE') || v === 'P') return 'Peça';
+  if (v.startsWith('SE') || v === 'S') return 'Serviço';
+  return raw.trim() || '—';
+}
+
 function parsearCsvManut(text) {
   // Remove BOM UTF-8 se presente
   const limpo = text.replace(/^﻿/, '');
@@ -1020,7 +1019,7 @@ function parsearCsvManut(text) {
       contrato:   get(cols.contrato),
       fornecedor: get(cols.fornecedor),
       tipo:       get(cols.tipo).toUpperCase(),
-      cat:        get(cols.cat),
+      cat:        normalizarCat(get(cols.cat)),
       item:       get(cols.item),
       data:       get(cols.data),
       vt:         parseFloat(vtRaw) || 0,
