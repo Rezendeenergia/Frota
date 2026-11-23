@@ -658,26 +658,40 @@ function htmlManutencaoShell() {
     <!-- ── Sub-aba: Detalhamento ── -->
     <div class="manut-painel" id="maba-detalhe">
       <div class="secao" style="margin-bottom:0">
-        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem;margin-bottom:.75rem">
-          <h3 class="secao-titulo" id="mtab-titulo" style="margin-bottom:0">Registros</h3>
-          <input class="manut-busca" id="mbusca" type="search" placeholder="Buscar placa, item, fornecedor…">
+
+        <!-- Filtro de placa + busca -->
+        <div style="display:flex;align-items:flex-end;flex-wrap:wrap;gap:.75rem;margin-bottom:1rem">
+          <div>
+            <div class="manut-label">Veículo (placa)</div>
+            <select class="manut-sel" id="mf-placa-detalhe" style="min-width:160px">
+              <option value="">Todos os veículos</option>
+            </select>
+          </div>
+          <div style="flex:1;min-width:200px">
+            <div class="manut-label">Buscar</div>
+            <input class="manut-busca" id="mbusca" type="search" placeholder="Descrição, fornecedor, OSM…" style="width:100%;box-sizing:border-box">
+          </div>
         </div>
+
+        <!-- Cabeçalho com contagem e total -->
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem;margin-bottom:.6rem">
+          <span id="mtab-titulo" style="font:700 .9rem var(--f-titulo);color:var(--texto-2)">Registros</span>
+          <span id="mtab-total" style="font:700 1rem var(--f-titulo);color:var(--laranja-texto)"></span>
+        </div>
+
         <div class="tabela-wrap">
           <table>
             <thead>
               <tr>
-                <th data-col="osm">OSM</th>
-                <th data-col="placa">Placa</th>
-                <th data-col="modelo">Modelo</th>
-                <th data-col="tipo">Tipo</th>
-                <th data-col="cat">Categoria</th>
-                <th data-col="item">Item</th>
-                <th data-col="fornecedor">Fornecedor</th>
                 <th data-col="data">Data</th>
+                <th data-col="tipo">Tipo</th>
+                <th data-col="item">Descrição</th>
+                <th data-col="fornecedor">Fornecedor</th>
                 <th data-col="vt" style="text-align:right">Valor</th>
               </tr>
             </thead>
             <tbody id="mtabela-body"></tbody>
+            <tfoot id="mtabela-tfoot"></tfoot>
           </table>
         </div>
         <div class="manut-pag">
@@ -703,9 +717,10 @@ function popularSelectsManut() {
     vals.forEach((v) => { const o = document.createElement('option'); o.value = v; o.textContent = v; el.appendChild(o); });
     el.value = val;
   };
-  preencherSel('mf-contrato', uniq('contrato'));
-  preencherSel('mf-cc',       uniq('cc'));
-  preencherSel('mf-modelo',   uniq('modelo'));
+  preencherSel('mf-contrato',      uniq('contrato'));
+  preencherSel('mf-cc',            uniq('cc'));
+  preencherSel('mf-modelo',        uniq('modelo'));
+  preencherSel('mf-placa-detalhe', uniq('placa'));
 }
 
 function renderManutKPIs(df) {
@@ -773,42 +788,64 @@ function renderManutCharts(df) {
     grpF.map((_, i) => PAL_GRAFICO[i % PAL_GRAFICO.length] + 'dd')));
 }
 
+let _manutPlacaDetalhe = '';  // filtro de placa exclusivo do detalhamento
+
 function renderManutTabela(df) {
-  const base = manutBusca(df);
+  // Aplica filtro de placa do detalhamento sobre o df já filtrado globalmente
+  const selPlaca = _manutPlacaDetalhe;
+  const base = manutBusca(selPlaca ? df.filter((r) => r.placa === selPlaca) : df);
+
   const sorted = [...base].sort((a, b) => {
     const va = a[_manutSortCol] ?? ''; const vb = b[_manutSortCol] ?? '';
     if (typeof va === 'number') return (va - vb) * _manutSortDir;
     return va.toString().localeCompare(vb.toString(), 'pt-BR') * _manutSortDir;
   });
-  const total = sorted.length;
-  const ini   = (_manutPagina - 1) * MANUT_POR_PAG;
-  const fim   = Math.min(ini + MANUT_POR_PAG, total);
-  const pags  = sorted.slice(ini, fim);
 
-  const tit  = document.getElementById('mtab-titulo');
-  const info = document.getElementById('mpag-info');
-  const prev = document.getElementById('mpag-prev');
-  const next = document.getElementById('mpag-next');
-  if (tit)  tit.textContent  = total + ' registros';
-  if (info) info.textContent = `${total ? ini + 1 : 0}–${fim} de ${total}`;
+  const totalRegs  = sorted.length;
+  const totalValor = sorted.reduce((s, r) => s + r.vt, 0);
+  const ini  = (_manutPagina - 1) * MANUT_POR_PAG;
+  const fim  = Math.min(ini + MANUT_POR_PAG, totalRegs);
+  const pags = sorted.slice(ini, fim);
+
+  const tit   = document.getElementById('mtab-titulo');
+  const tot   = document.getElementById('mtab-total');
+  const info  = document.getElementById('mpag-info');
+  const prev  = document.getElementById('mpag-prev');
+  const next  = document.getElementById('mpag-next');
+  const tfoot = document.getElementById('mtabela-tfoot');
+
+  const veicLabel = selPlaca ? ` — ${selPlaca}` : '';
+  if (tit)  tit.textContent  = `${totalRegs} registro(s)${veicLabel}`;
+  if (tot)  tot.textContent  = totalRegs ? `Total gasto: ${moeda(totalValor)}` : '';
+  if (info) info.textContent = `${totalRegs ? ini + 1 : 0}–${fim} de ${totalRegs}`;
   if (prev) prev.disabled    = _manutPagina <= 1;
-  if (next) next.disabled    = fim >= total;
+  if (next) next.disabled    = fim >= totalRegs;
 
   const tbody = document.getElementById('mtabela-body');
   if (!tbody) return;
+
   tbody.innerHTML = pags.map((r) => `
     <tr>
-      <td><strong>${esc(r.osm)}</strong></td>
-      <td style="font-weight:600">${esc(r.placa || '—')}</td>
-      <td>${esc(r.modelo || '—')}</td>
-      <td><span class="chip chip-${r.tipo === 'CORRETIVA' ? 'corretiva' : 'preventiva'}">${esc(r.tipo)}</span></td>
-      <td><span class="chip chip-${r.cat === 'Peça' ? 'peca' : 'serv'}">${esc(r.cat || '—')}</span></td>
+      <td style="white-space:nowrap">${esc(r.data || '—')}</td>
+      <td><span class="chip chip-${r.tipo === 'CORRETIVA' ? 'corretiva' : 'preventiva'}">${esc(r.tipo || '—')}</span></td>
       <td>${esc(r.item || '—')}</td>
       <td>${esc(r.fornecedor || '—')}</td>
-      <td>${esc(r.data || '—')}</td>
-      <td style="text-align:right;font-weight:600">${moeda(r.vt)}</td>
+      <td style="text-align:right;font-weight:600;white-space:nowrap">${moeda(r.vt)}</td>
     </tr>`).join('') ||
-    `<tr><td colspan="9" style="text-align:center;padding:1.5rem;color:var(--texto-3)">Nenhum registro encontrado.</td></tr>`;
+    `<tr><td colspan="5" style="text-align:center;padding:1.5rem;color:var(--texto-3)">Nenhum registro encontrado.</td></tr>`;
+
+  // Linha de total no rodapé da tabela
+  if (tfoot) {
+    tfoot.innerHTML = totalRegs ? `
+      <tr style="border-top:2px solid var(--linha-forte)">
+        <td colspan="4" style="font-weight:700;color:var(--texto-2);padding:.6rem .75rem">
+          Total${selPlaca ? ' — ' + selPlaca : ''} (${totalRegs} registros)
+        </td>
+        <td style="text-align:right;font-weight:800;color:var(--laranja-texto);padding:.6rem .75rem;white-space:nowrap">
+          ${moeda(totalValor)}
+        </td>
+      </tr>` : '';
+  }
 }
 
 function atualizarManut() {
@@ -860,6 +897,17 @@ function configurarManutencao() {
     if (b) b.value = '';
     atualizarManut();
   });
+
+  // Filtro de placa do detalhamento
+  const selPlacaDet = document.getElementById('mf-placa-detalhe');
+  if (selPlacaDet) {
+    selPlacaDet.value = _manutPlacaDetalhe;
+    selPlacaDet.addEventListener('change', (e) => {
+      _manutPlacaDetalhe = e.target.value;
+      _manutPagina = 1;
+      renderManutTabela(manutFiltrados());
+    });
+  }
 
   // Busca
   document.getElementById('mbusca')?.addEventListener('input', (e) => {
