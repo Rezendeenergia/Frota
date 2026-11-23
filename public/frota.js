@@ -229,7 +229,7 @@ function manutMesclar(existentes, novos) {
 }
 
 let _manutDados = manutCarregarStorage();  // dados de manutenção (persistidos no navegador)
-let _manutFiltros = { tipo: '', tipoManut: '', placa: '' };
+let _manutFiltros = { mes: '', tipo: '', tipoManut: '', placa: '' };
 let _manutBusca = '';
 let _manutSortCol = 'data'; let _manutSortDir = 1;
 let _manutPagina = 1;
@@ -569,12 +569,20 @@ function configurarPeriodo() {
 // ABA: Manutenção
 // ------------------------------------------------------------------ //
 
+// Extrai "YYYY-MM" de uma data "DD/MM/YYYY HH:MM:SS" ou "DD/MM/YYYY"
+function manutMesAno(dataStr) {
+  if (!dataStr) return '';
+  const m = dataStr.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+  return m ? `${m[3]}-${m[2]}` : '';
+}
+
 function manutFiltrados() {
   if (!_manutDados) return [];
   return _manutDados.filter((r) => {
-    if (_manutFiltros.tipo      && r.cat   !== _manutFiltros.tipo)      return false;
-    if (_manutFiltros.tipoManut && r.tipo  !== _manutFiltros.tipoManut) return false;
-    if (_manutFiltros.placa     && r.placa !== _manutFiltros.placa)     return false;
+    if (_manutFiltros.mes       && manutMesAno(r.data) !== _manutFiltros.mes) return false;
+    if (_manutFiltros.tipo      && r.cat   !== _manutFiltros.tipo)            return false;
+    if (_manutFiltros.tipoManut && r.tipo  !== _manutFiltros.tipoManut)       return false;
+    if (_manutFiltros.placa     && r.placa !== _manutFiltros.placa)           return false;
     return true;
   });
 }
@@ -646,6 +654,10 @@ function htmlManutencaoShell() {
   return uploadCard + `
     <!-- Filtros -->
     <div class="manut-filtros" id="mfiltros">
+      <div class="manut-filtro-grupo">
+        <span class="manut-filtro-label">Mês</span>
+        <select class="manut-sel" id="mf-mes"><option value="">Todos</option></select>
+      </div>
       <div class="manut-filtro-grupo">
         <span class="manut-filtro-label">Tipo</span>
         <select class="manut-sel" id="mf-tipo">
@@ -781,6 +793,21 @@ function popularSelectsManut() {
     el.value = val;
   };
   preencherSel('mf-placa', uniq('placa'));
+
+  // Meses únicos ordenados, exibidos como "MMM/YYYY" mas valor "YYYY-MM"
+  const MESES_PT = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  const mesesUniq = [...new Set(_manutDados.map((r) => manutMesAno(r.data)))]
+    .filter(Boolean).sort();
+  const selMes = document.getElementById('mf-mes');
+  if (selMes) {
+    selMes.innerHTML = '<option value="">Todos</option>' +
+      mesesUniq.map((ym) => {
+        const [ano, m] = ym.split('-');
+        const label = `${MESES_PT[parseInt(m, 10) - 1]}/${ano}`;
+        return `<option value="${ym}">${label}</option>`;
+      }).join('');
+    selMes.value = _manutFiltros.mes || '';
+  }
 }
 
 function renderManutKPIs(df) {
@@ -975,7 +1002,7 @@ function renderManutencao() {
 
 function configurarManutencao() {
   // Filtros (selects)
-  [['mf-tipo', 'tipo'], ['mf-tipoManut', 'tipoManut'], ['mf-placa', 'placa']].forEach(([id, chave]) => {
+  [['mf-mes', 'mes'], ['mf-tipo', 'tipo'], ['mf-tipoManut', 'tipoManut'], ['mf-placa', 'placa']].forEach(([id, chave]) => {
     const el = document.getElementById(id);
     if (!el) return;
     el.value = _manutFiltros[chave] || '';
@@ -987,9 +1014,9 @@ function configurarManutencao() {
   });
 
   document.getElementById('mbtn-limpar')?.addEventListener('click', () => {
-    _manutFiltros = { tipo: '', tipoManut: '', placa: '' };
+    _manutFiltros = { mes: '', tipo: '', tipoManut: '', placa: '' };
     _manutBusca = '';
-    ['mf-tipo', 'mf-tipoManut', 'mf-placa'].forEach((id) => {
+    ['mf-mes', 'mf-tipo', 'mf-tipoManut', 'mf-placa'].forEach((id) => {
       const el = document.getElementById(id);
       if (el) el.value = '';
     });
