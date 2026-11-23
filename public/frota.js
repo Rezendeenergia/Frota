@@ -711,17 +711,15 @@ function htmlManutencaoShell() {
     <div class="manut-painel" id="maba-veiculos">
       <div class="chart-card-manut" style="margin-bottom:1.25rem">
         <div class="chart-titulo-manut">Custo por veículo (R$)</div>
-        <div style="height:300px;position:relative"><canvas id="mchart-veic"></canvas></div>
+        <div id="mchart-veic-wrap" style="position:relative"><canvas id="mchart-veic"></canvas></div>
       </div>
-      <div class="charts-grid-manut">
-        <div class="chart-card-manut">
-          <div class="chart-titulo-manut">Custo por modelo (R$)</div>
-          <div style="height:260px;position:relative"><canvas id="mchart-modelo"></canvas></div>
-        </div>
-        <div class="chart-card-manut">
-          <div class="chart-titulo-manut">Top itens (ocorrências)</div>
-          <div style="height:260px;position:relative"><canvas id="mchart-itens"></canvas></div>
-        </div>
+      <div class="chart-card-manut" style="margin-bottom:1.25rem">
+        <div class="chart-titulo-manut">Custo por modelo (R$)</div>
+        <div id="mchart-modelo-wrap" style="position:relative"><canvas id="mchart-modelo"></canvas></div>
+      </div>
+      <div class="chart-card-manut">
+        <div class="chart-titulo-manut">Top itens (ocorrências)</div>
+        <div id="mchart-itens-wrap" style="position:relative"><canvas id="mchart-itens"></canvas></div>
       </div>
     </div>
 
@@ -834,22 +832,29 @@ function renderManutCharts(df) {
     ['#7C3AED', '#0D9488', '#B45309', '#1E3A8A', '#F7931E', '#BE123C', '#047857', '#1D4ED8']
   ));
 
-  // Por veículo — barras horizontais com rótulos
-  const grpV = manutAgrupar(df, 'placa').slice(0, 15);
+  // Por veículo — barras horizontais com rótulos; altura proporcional ao nº de itens
+  const grpV = manutAgrupar(df, 'placa').slice(0, 30);
+  const altVeic = Math.max(260, grpV.length * 32 + 60);
+  document.getElementById('mchart-veic-wrap').style.height = altVeic + 'px';
   criarChart('mchart-veic', optsBarHoriz(
     grpV.map((x) => x[0]),
     grpV.map((x) => x[1]),
     grpV.map((_, i) => i === 0 ? '#F7931E' : PAL_GRAFICO[i % PAL_GRAFICO.length] + 'cc')
   ));
 
-  // Por modelo — gráfico de linhas com rótulos (evolução por custo)
+  // Por modelo — barras horizontais, altura proporcional
   const grpM = manutAgrupar(df, 'modelo').slice(0, 10);
-  criarChart('mchart-modelo', optsLinha(grpM.map((x) => x[0]), grpM.map((x) => x[1]), '#F7931E'));
+  const altModelo = Math.max(200, grpM.length * 32 + 60);
+  document.getElementById('mchart-modelo-wrap').style.height = altModelo + 'px';
+  criarChart('mchart-modelo', optsBarHoriz(grpM.map((x) => x[0]), grpM.map((x) => x[1]),
+    grpM.map((_, i) => PAL_GRAFICO[i % PAL_GRAFICO.length] + 'cc')));
 
-  // Top itens — barras horizontais com contagem + rótulo
+  // Top itens — barras horizontais com contagem + rótulo; altura proporcional
   const acc = {};
   df.forEach((r) => { const k = r.item || '—'; acc[k] = (acc[k] || 0) + 1; });
   const grpI = Object.entries(acc).sort((a, b) => b[1] - a[1]).slice(0, 10);
+  const altItens = Math.max(200, grpI.length * 32 + 60);
+  document.getElementById('mchart-itens-wrap').style.height = altItens + 'px';
   criarChart('mchart-itens', {
     type: 'bar', indexAxis: 'y',
     data: { labels: grpI.map((x) => x[0].length > 28 ? x[0].slice(0, 26) + '…' : x[0]),
