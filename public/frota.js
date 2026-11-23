@@ -206,7 +206,7 @@ async function api(caminho) {
 // ------------------------------------------------------------------ //
 
 let abaAtiva = 'indicadores';
-const MANUT_STORAGE_KEY = 'frota_manut_v1';
+const MANUT_STORAGE_KEY = 'frota_manut_v2'; // v2: parser RFC 4180, dados v1 descartados
 
 function manutSalvar(dados) {
   try {
@@ -229,7 +229,7 @@ function manutMesclar(existentes, novos) {
 }
 
 let _manutDados = manutCarregarStorage();  // dados de manutenção (persistidos no navegador)
-let _manutFiltros = { tipo: '', tipoManut: '', placa: '' };
+let _manutFiltros = { mes: '', tipo: '', tipoManut: '', placa: '' };
 let _manutBusca = '';
 let _manutSortCol = 'data'; let _manutSortDir = 1;
 let _manutPagina = 1;
@@ -569,12 +569,20 @@ function configurarPeriodo() {
 // ABA: Manutenção
 // ------------------------------------------------------------------ //
 
+// Extrai "YYYY-MM" de uma data "DD/MM/YYYY HH:MM:SS" ou "DD/MM/YYYY"
+function manutMesAno(dataStr) {
+  if (!dataStr) return '';
+  const m = dataStr.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+  return m ? `${m[3]}-${m[2]}` : '';
+}
+
 function manutFiltrados() {
   if (!_manutDados) return [];
   return _manutDados.filter((r) => {
-    if (_manutFiltros.tipo      && r.cat   !== _manutFiltros.tipo)      return false;
-    if (_manutFiltros.tipoManut && r.tipo  !== _manutFiltros.tipoManut) return false;
-    if (_manutFiltros.placa     && r.placa !== _manutFiltros.placa)     return false;
+    if (_manutFiltros.mes       && manutMesAno(r.data) !== _manutFiltros.mes) return false;
+    if (_manutFiltros.tipo      && r.cat   !== _manutFiltros.tipo)            return false;
+    if (_manutFiltros.tipoManut && r.tipo  !== _manutFiltros.tipoManut)       return false;
+    if (_manutFiltros.placa     && r.placa !== _manutFiltros.placa)           return false;
     return true;
   });
 }
@@ -647,6 +655,10 @@ function htmlManutencaoShell() {
     <!-- Filtros -->
     <div class="manut-filtros" id="mfiltros">
       <div class="manut-filtro-grupo">
+        <span class="manut-filtro-label">Mês</span>
+        <select class="manut-sel" id="mf-mes"><option value="">Todos</option></select>
+      </div>
+      <div class="manut-filtro-grupo">
         <span class="manut-filtro-label">Tipo</span>
         <select class="manut-sel" id="mf-tipo">
           <option value="">Todos</option>
@@ -711,17 +723,15 @@ function htmlManutencaoShell() {
     <div class="manut-painel" id="maba-veiculos">
       <div class="chart-card-manut" style="margin-bottom:1.25rem">
         <div class="chart-titulo-manut">Custo por veículo (R$)</div>
-        <div style="height:300px;position:relative"><canvas id="mchart-veic"></canvas></div>
+        <div id="mchart-veic-wrap" style="position:relative"><canvas id="mchart-veic"></canvas></div>
       </div>
-      <div class="charts-grid-manut">
-        <div class="chart-card-manut">
-          <div class="chart-titulo-manut">Custo por modelo (R$)</div>
-          <div style="height:260px;position:relative"><canvas id="mchart-modelo"></canvas></div>
-        </div>
-        <div class="chart-card-manut">
-          <div class="chart-titulo-manut">Top itens (ocorrências)</div>
-          <div style="height:260px;position:relative"><canvas id="mchart-itens"></canvas></div>
-        </div>
+      <div class="chart-card-manut" style="margin-bottom:1.25rem">
+        <div class="chart-titulo-manut">Custo por modelo (R$)</div>
+        <div id="mchart-modelo-wrap" style="position:relative"><canvas id="mchart-modelo"></canvas></div>
+      </div>
+      <div class="chart-card-manut">
+        <div class="chart-titulo-manut">Top itens (ocorrências)</div>
+        <div id="mchart-itens-wrap" style="position:relative"><canvas id="mchart-itens"></canvas></div>
       </div>
     </div>
 
@@ -783,6 +793,21 @@ function popularSelectsManut() {
     el.value = val;
   };
   preencherSel('mf-placa', uniq('placa'));
+
+  // Meses únicos ordenados, exibidos como "MMM/YYYY" mas valor "YYYY-MM"
+  const MESES_PT = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  const mesesUniq = [...new Set(_manutDados.map((r) => manutMesAno(r.data)))]
+    .filter(Boolean).sort();
+  const selMes = document.getElementById('mf-mes');
+  if (selMes) {
+    selMes.innerHTML = '<option value="">Todos</option>' +
+      mesesUniq.map((ym) => {
+        const [ano, m] = ym.split('-');
+        const label = `${MESES_PT[parseInt(m, 10) - 1]}/${ano}`;
+        return `<option value="${ym}">${label}</option>`;
+      }).join('');
+    selMes.value = _manutFiltros.mes || '';
+  }
 }
 
 function renderManutKPIs(df) {
@@ -834,22 +859,29 @@ function renderManutCharts(df) {
     ['#7C3AED', '#0D9488', '#B45309', '#1E3A8A', '#F7931E', '#BE123C', '#047857', '#1D4ED8']
   ));
 
-  // Por veículo — barras horizontais com rótulos
-  const grpV = manutAgrupar(df, 'placa').slice(0, 15);
+  // Por veículo — barras horizontais com rótulos; altura proporcional ao nº de itens
+  const grpV = manutAgrupar(df, 'placa').slice(0, 30);
+  const altVeic = Math.max(260, grpV.length * 32 + 60);
+  document.getElementById('mchart-veic-wrap').style.height = altVeic + 'px';
   criarChart('mchart-veic', optsBarHoriz(
     grpV.map((x) => x[0]),
     grpV.map((x) => x[1]),
     grpV.map((_, i) => i === 0 ? '#F7931E' : PAL_GRAFICO[i % PAL_GRAFICO.length] + 'cc')
   ));
 
-  // Por modelo — gráfico de linhas com rótulos (evolução por custo)
+  // Por modelo — barras horizontais, altura proporcional
   const grpM = manutAgrupar(df, 'modelo').slice(0, 10);
-  criarChart('mchart-modelo', optsLinha(grpM.map((x) => x[0]), grpM.map((x) => x[1]), '#F7931E'));
+  const altModelo = Math.max(200, grpM.length * 32 + 60);
+  document.getElementById('mchart-modelo-wrap').style.height = altModelo + 'px';
+  criarChart('mchart-modelo', optsBarHoriz(grpM.map((x) => x[0]), grpM.map((x) => x[1]),
+    grpM.map((_, i) => PAL_GRAFICO[i % PAL_GRAFICO.length] + 'cc')));
 
-  // Top itens — barras horizontais com contagem + rótulo
+  // Top itens — barras horizontais com contagem + rótulo; altura proporcional
   const acc = {};
   df.forEach((r) => { const k = r.item || '—'; acc[k] = (acc[k] || 0) + 1; });
   const grpI = Object.entries(acc).sort((a, b) => b[1] - a[1]).slice(0, 10);
+  const altItens = Math.max(200, grpI.length * 32 + 60);
+  document.getElementById('mchart-itens-wrap').style.height = altItens + 'px';
   criarChart('mchart-itens', {
     type: 'bar', indexAxis: 'y',
     data: { labels: grpI.map((x) => x[0].length > 28 ? x[0].slice(0, 26) + '…' : x[0]),
@@ -970,7 +1002,7 @@ function renderManutencao() {
 
 function configurarManutencao() {
   // Filtros (selects)
-  [['mf-tipo', 'tipo'], ['mf-tipoManut', 'tipoManut'], ['mf-placa', 'placa']].forEach(([id, chave]) => {
+  [['mf-mes', 'mes'], ['mf-tipo', 'tipo'], ['mf-tipoManut', 'tipoManut'], ['mf-placa', 'placa']].forEach(([id, chave]) => {
     const el = document.getElementById(id);
     if (!el) return;
     el.value = _manutFiltros[chave] || '';
@@ -982,9 +1014,9 @@ function configurarManutencao() {
   });
 
   document.getElementById('mbtn-limpar')?.addEventListener('click', () => {
-    _manutFiltros = { tipo: '', tipoManut: '', placa: '' };
+    _manutFiltros = { mes: '', tipo: '', tipoManut: '', placa: '' };
     _manutBusca = '';
-    ['mf-tipo', 'mf-tipoManut', 'mf-placa'].forEach((id) => {
+    ['mf-mes', 'mf-tipo', 'mf-tipoManut', 'mf-placa'].forEach((id) => {
       const el = document.getElementById(id);
       if (el) el.value = '';
     });
