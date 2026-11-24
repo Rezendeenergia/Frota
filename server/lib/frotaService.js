@@ -147,6 +147,20 @@ function somarValor(lista, campo) {
   return lista.reduce((s, v) => s + (v[campo] ?? 0), 0);
 }
 
+// Agrupa somando valor (além da quantidade) — usado nos cards da aba Locação.
+function agruparComValor(lista, campoChave, campoValor) {
+  const acc = {};
+  for (const v of lista) {
+    const k = v[campoChave] || 'Outros';
+    if (!acc[k]) acc[k] = { qtd: 0, valor: 0 };
+    acc[k].qtd += 1;
+    acc[k].valor += v[campoValor] ?? 0;
+  }
+  return Object.entries(acc)
+    .sort((a, b) => b[1].valor - a[1].valor)
+    .map(([chave, o]) => ({ chave, qtd: o.qtd, valor: o.valor }));
+}
+
 // --------------------------------------------------------------------------
 // Ponto de entrada principal
 // --------------------------------------------------------------------------
@@ -170,6 +184,11 @@ export async function fetchFrota(periodo = '30dias') {
   const porTipoLocado = agrupar(locados, 'tipo');
   const porTipoProprio = agrupar(proprios, 'tipo');
 
+  // Com valor — para os cards/barras da aba Locação
+  const porTipoLocadoValor = agruparComValor(locados, 'tipo', 'valorMensal');
+  const porLocadoraValor = agruparComValor(locados, 'locadora', 'valorMensal');
+  const qtdLocadoras = new Set(locados.map((v) => v.locadora).filter(Boolean)).size;
+
   return {
     geradoEm: new Date().toISOString(),
     erroVeiculos,
@@ -187,6 +206,10 @@ export async function fetchFrota(periodo = '30dias') {
     locacao: {
       veiculos: locados,
       custoTotal: custoLocacaoMensal,
+      valorMedio: locados.length ? custoLocacaoMensal / locados.length : 0,
+      qtdLocadoras,
+      porTipo: porTipoLocadoValor,
+      porLocadora: porLocadoraValor,
     },
     abastecimento,
   };
