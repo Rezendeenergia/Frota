@@ -251,7 +251,7 @@ export function criarRouterFrota() {
   // GET /api/frota/manut — carrega todos os registros salvos
   r.get('/manut', autenticar, async (req, res) => {
     try {
-      const rows = await sbFetch('/frota_manut_registros?select=osm,placa,modelo,data,tipo,cat,item,vt,status,obs&order=data.desc&limit=10000');
+      const rows = await sbFetch('/frota_manut_registros?select=osm,placa,modelo,data,tipo,cat,item,fornecedor,vu,qtd,vt,status,obs&order=data.desc&limit=10000');
       res.json({ registros: rows });
     } catch (err) {
       console.error('[frota/manut] carregar:', err?.message || err);
@@ -277,6 +277,9 @@ export function criarRouterFrota() {
         tipo:    r.tipo    || null,
         cat:     r.cat     || null,
         item:    r.item    || null,
+        fornecedor: r.fornecedor || null,
+        vu:      Number(r.vu)  || 0,
+        qtd:     Number(r.qtd) || 0,
         vt:      Number(r.vt) || 0,
         status:  r.status  || null,
         obs:     r.obs     || null,
