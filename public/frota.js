@@ -538,6 +538,37 @@ function htmlLocacao(d) {
     return aviso + '<div class="estado-global">Nenhum veículo locado encontrado.</div>';
   }
 
+  // Cards de topo
+  const cards = `
+    <div class="indicadores-grid">
+      ${cardInd('Veículos locados', veiculos.length, '', '')}
+      ${cardInd('Custo total', moeda(loc.custoTotal), 'laranja', '/mês')}
+      ${cardInd('Valor médio', moeda(loc.valorMedio), '', 'por veículo/mês')}
+      ${cardInd('Locadoras', loc.qtdLocadoras ?? '—', '', '')}
+    </div>`;
+
+  // Por tipo de veículo (qtd + valor)
+  const porTipo = loc.porTipo || [];
+  const maxTipo = porTipo[0]?.valor || 1;
+  const barrasTipo = porTipo.map((g) => `
+    <div class="grupo-item">
+      <span class="grupo-nome">${esc(g.chave)}</span>
+      <div class="grupo-barra-wrap"><div class="grupo-barra" style="width:${Math.round(g.valor / maxTipo * 100)}%"></div></div>
+      <span class="grupo-qtd">${g.qtd}</span>
+      <span class="grupo-valor">${moeda(g.valor)}</span>
+    </div>`).join('');
+
+  // Por locadora (qtd + valor)
+  const porLoc = loc.porLocadora || [];
+  const maxLoc = porLoc[0]?.valor || 1;
+  const barrasLoc = porLoc.map((g) => `
+    <div class="grupo-item">
+      <span class="grupo-nome">${esc(g.chave)}</span>
+      <div class="grupo-barra-wrap"><div class="grupo-barra" style="width:${Math.round(g.valor / maxLoc * 100)}%"></div></div>
+      <span class="grupo-qtd">${g.qtd}</span>
+      <span class="grupo-valor">${moeda(g.valor)}</span>
+    </div>`).join('');
+
   const rows = veiculos.map((v) => `
     <tr>
       <td><strong>${esc(v.placa)}</strong></td>
@@ -551,11 +582,13 @@ function htmlLocacao(d) {
 
   return `
     ${aviso}
+    ${cards}
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:1.5rem;margin-bottom:.25rem">
+      ${barrasTipo ? `<div class="secao"><h3 class="secao-titulo">Por tipo de veículo</h3><div class="grupo-lista">${barrasTipo}</div></div>` : ''}
+      ${barrasLoc  ? `<div class="secao"><h3 class="secao-titulo">Por locadora</h3><div class="grupo-lista">${barrasLoc}</div></div>` : ''}
+    </div>
     <div class="secao">
       <h3 class="secao-titulo">Veículos locados (${veiculos.length})</h3>
-      <div style="font-size:.88rem;color:var(--texto-2);margin-bottom:.9rem">
-        Total mensal: <strong style="color:var(--laranja-texto)">${moeda(loc.custoTotal)}</strong>
-      </div>
       <div class="tabela-wrap">
         <table>
           <thead>
