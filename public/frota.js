@@ -313,7 +313,12 @@ async function iniciar() {
     return;
   }
 
-  document.getElementById('nomeUsuario').textContent = eu.nome || eu.email;
+  // Atualiza sidebar com dados do usuário
+  const nome = eu.nome || eu.email || '';
+  const elNome = document.getElementById('sidebarNome');
+  if (elNome) elNome.textContent = nome;
+  const elAvatar = document.getElementById('sidebarAvatar');
+  if (elAvatar) elAvatar.textContent = (nome.trim()[0] || '?').toUpperCase();
 
   // Botão sair
   document.getElementById('btnSair').addEventListener('click', async () => {
@@ -325,10 +330,32 @@ async function iniciar() {
     }
   });
 
-  // Abas
-  document.querySelectorAll('.aba-btn').forEach((btn) => {
-    btn.addEventListener('click', () => trocarAba(btn.dataset.aba));
+  // Nav items da sidebar
+  document.querySelectorAll('.nav-item[data-aba]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      trocarAba(btn.dataset.aba);
+      // Fecha sidebar no mobile
+      fecharSidebar();
+    });
   });
+
+  // Mobile: burger + overlay
+  const sidebar   = document.getElementById('sidebar');
+  const overlay   = document.getElementById('sidebarOverlay');
+  const btnMenu   = document.getElementById('btnMenu');
+  if (btnMenu)  btnMenu.addEventListener('click',  abrirSidebar);
+  if (overlay)  overlay.addEventListener('click',  fecharSidebar);
+
+  function abrirSidebar() {
+    sidebar?.classList.add('aberta');
+    overlay?.classList.add('visivel');
+    document.body.style.overflow = 'hidden';
+  }
+  function fecharSidebar() {
+    sidebar?.classList.remove('aberta');
+    overlay?.classList.remove('visivel');
+    document.body.style.overflow = '';
+  }
 
   // Carrega dados
   await carregarDados();
@@ -364,13 +391,23 @@ function mostrarErroGlobal(msg) {
 // Troca de aba
 // ------------------------------------------------------------------ //
 
+const TITULOS_ABA = {
+  indicadores:  'Indicadores',
+  locacao:      'Locação',
+  abastecimento:'Abastecimento',
+  manutencao:   'Manutenção',
+  rastreamento: 'Rastreamento',
+};
+
 function trocarAba(nome) {
   abaAtiva = nome;
-  document.querySelectorAll('.aba-btn').forEach((b) => {
-    const ativa = b.dataset.aba === nome;
-    b.classList.toggle('ativa', ativa);
-    b.setAttribute('aria-selected', String(ativa));
+  // Atualiza nav items da sidebar
+  document.querySelectorAll('.nav-item[data-aba]').forEach((b) => {
+    b.classList.toggle('active', b.dataset.aba === nome);
   });
+  // Atualiza título no topbar
+  const elTit = document.getElementById('topbarTitulo');
+  if (elTit) elTit.textContent = TITULOS_ABA[nome] || nome;
   if (dadosGlobais) renderizarAba(nome);
 }
 
@@ -751,12 +788,17 @@ function _renderAbastDetalhes(det) {
       </div>
     </div>` : '';
 
-  // ---- Tabela de placas ----
-  const tabelaPlacas = det.placas?.length ? `
-    <div class="secao">
-      <h3 class="secao-titulo">Por placa (${det.placas.length} veículos)</h3>
+  // ---- Tabela de placas (paginada) ----
+  const PLACAS_POR_PAG = 20;
+  const tabelaPlacasContainer = det.placas?.length ? `
+    <div class="secao" id="secao-placas">
+      <div style="display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;margin-bottom:.75rem">
+        <h3 class="secao-titulo" style="margin:0">Por placa (${det.placas.length} veículos)</h3>
+        <input id="filtro-placa" type="search" placeholder="Filtrar placa…"
+          style="margin-left:auto;padding:.35rem .75rem;border:1px solid var(--linha-forte);border-radius:var(--raio-p);background:var(--sup-2);color:var(--texto);font:inherit;font-size:.85rem;width:160px">
+      </div>
       <div class="tabela-wrap">
-        <table>
+        <table id="tabela-placas">
           <thead>
             <tr>
               <th>Placa</th>
@@ -766,19 +808,10 @@ function _renderAbastDetalhes(det) {
               <th style="text-align:right">Abast.</th>
             </tr>
           </thead>
-          <tbody>
-            ${det.placas.map((p) => `<tr>
-              <td><strong>${esc(p.placa)}</strong></td>
-              <td style="text-align:right">${num(p.litros)} L</td>
-              <td style="text-align:right">${p.kmRodados > 0 ? num(p.kmRodados)+' km' : '—'}</td>
-              <td style="text-align:right${p.kmL != null && p.kmL < 2 ? ';color:var(--alerta)' : ''}">
-                ${p.kmL != null ? p.kmL.toFixed(2) : '—'}
-              </td>
-              <td style="text-align:right">${p.contagem}</td>
-            </tr>`).join('')}
-          </tbody>
+          <tbody id="tbody-placas"></tbody>
         </table>
       </div>
+      <div id="pag-placas" style="display:flex;align-items:center;gap:.5rem;margin-top:.75rem;font-size:.85rem;color:var(--texto-2)"></div>
     </div>` : '';
 
   const divDet = document.getElementById('abast-detalhes');
@@ -791,7 +824,58 @@ function _renderAbastDetalhes(det) {
       ${tabelaComb}
       ${tabelaPostos}
     </div>
-    ${tabelaPlacas}`;
+    ${tabelaPlacasContainer}`;
+
+  // Paginação interativa da tabela de placas
+  if (det.placas?.length) {
+    let placasFiltradas = [...det.placas];
+    let pagAtual = 0;
+
+    const tbody   = document.getElementById('tbody-placas');
+    const pagDiv  = document.getElementById('pag-placas');
+    const filtroEl = document.getElementById('filtro-placa');
+
+    function renderPagina() {
+      const inicio = pagAtual * PLACAS_POR_PAG;
+      const fatia  = placasFiltradas.slice(inicio, inicio + PLACAS_POR_PAG);
+      tbody.innerHTML = fatia.map((p) => `<tr>
+        <td><strong>${esc(p.placa)}</strong></td>
+        <td style="text-align:right">${num(p.litros)} L</td>
+        <td style="text-align:right">${p.kmRodados > 0 ? num(p.kmRodados)+' km' : '—'}</td>
+        <td style="text-align:right${p.kmL != null && p.kmL < 2 ? ';color:var(--alerta)' : ''}">
+          ${p.kmL != null ? p.kmL.toFixed(2) : '—'}
+        </td>
+        <td style="text-align:right">${p.contagem}</td>
+      </tr>`).join('');
+
+      const totalPags = Math.ceil(placasFiltradas.length / PLACAS_POR_PAG);
+      if (totalPags <= 1) { pagDiv.innerHTML = ''; return; }
+
+      pagDiv.innerHTML = `
+        <button class="btn-pag" data-dir="-1" ${pagAtual === 0 ? 'disabled' : ''} style="padding:.25rem .6rem;border:1px solid var(--linha-forte);border-radius:var(--raio-p);background:var(--sup-2);color:var(--texto-2);cursor:pointer;font-size:.8rem" title="Anterior">‹</button>
+        <span>Página ${pagAtual + 1} de ${totalPags} · ${placasFiltradas.length} veículos</span>
+        <button class="btn-pag" data-dir="1" ${pagAtual >= totalPags - 1 ? 'disabled' : ''} style="padding:.25rem .6rem;border:1px solid var(--linha-forte);border-radius:var(--raio-p);background:var(--sup-2);color:var(--texto-2);cursor:pointer;font-size:.8rem" title="Próxima">›</button>`;
+
+      pagDiv.querySelectorAll('.btn-pag').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          pagAtual += Number(btn.dataset.dir);
+          renderPagina();
+          document.getElementById('secao-placas')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+      });
+    }
+
+    if (filtroEl) {
+      filtroEl.addEventListener('input', () => {
+        const q = filtroEl.value.trim().toUpperCase();
+        placasFiltradas = q ? det.placas.filter((p) => p.placa.toUpperCase().includes(q)) : [...det.placas];
+        pagAtual = 0;
+        renderPagina();
+      });
+    }
+
+    renderPagina();
+  }
 
   // Renderiza os gráficos de evolução (depois de inserir no DOM)
   if (hist.length >= 2) {

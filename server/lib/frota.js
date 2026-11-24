@@ -320,10 +320,21 @@ export function criarRouterFrota() {
 
   // ------------------------------------------------------------------ //
   // Abastecimento detalhado — indicadores com base nos dados do Supabase Abast
+  // Cache em memória: cada chave de filtro fica cacheada 5 min.
   // ------------------------------------------------------------------ //
+  const ABAST_CACHE     = new Map(); // chave → { ts, dados }
+  const ABAST_CACHE_TTL = 5 * 60 * 1000; // 5 min
 
   r.get('/abastecimento-detalhado', autenticar, async (req, res) => {
     if (!SB_KEY) return res.status(503).json({ erro: 'Banco de abastecimento não configurado.' });
+
+    // Chave de cache baseada nos parâmetros de filtro (não no usuário: dados são os mesmos)
+    const cacheKey = `${req.query.periodo||'30dias'}|${req.query.placa||''}|${req.query.posto||''}|${req.query.mes||''}`;
+    const cached = ABAST_CACHE.get(cacheKey);
+    if (cached && (Date.now() - cached.ts) < ABAST_CACHE_TTL) {
+      res.set('X-Cache', 'HIT');
+      return res.json(cached.dados);
+    }
 
     // Período: hoje / 7dias / 30dias / mes
     const periodo = ['hoje', '7dias', '30dias', 'mes'].includes(req.query.periodo)
@@ -494,7 +505,7 @@ export function criarRouterFrota() {
       const todosPostos = [...new Set(todosRows.map((r) => (r.gas_station || '').trim()).filter(Boolean))].sort();
       const todosMeses  = historico.map((h) => ({ mes: h.mes, rotulo: h.rotulo }));
 
-      res.json({
+      const resposta = {
         periodo: filtroMes ? `mes:${filtroMes}` : periodo,
         filtros: { placa: filtroPlaca, posto: filtroPosto, mes: filtroMes },
         totalAbastecimentos: rows.length,
@@ -507,7 +518,19 @@ export function criarRouterFrota() {
         combustiveis,
         historico,
         opcoes: { placas: todasPlacas, postos: todosPostos, meses: todosMeses },
-      });
+      };
+
+      // Salva no cache (limpa entradas expiradas periodicamente)
+      ABAST_CACHE.set(cacheKey, { ts: Date.now(), dados: resposta });
+      if (ABAST_CACHE.size > 50) {
+        const agora = Date.now();
+        for (const [k, v] of ABAST_CACHE) {
+          if (agora - v.ts > ABAST_CACHE_TTL) ABAST_CACHE.delete(k);
+        }
+      }
+
+      res.set('X-Cache', 'MISS');
+      res.json(resposta);
     } catch (err) {
       console.error('[frota/abast-det]', err?.message || err);
       res.status(502).json({ erro: 'Falha ao buscar dados de abastecimento.' });
