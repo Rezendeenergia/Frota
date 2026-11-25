@@ -395,6 +395,7 @@ const TITULOS_ABA = {
   indicadores:  'Indicadores',
   locacao:      'Locação',
   abastecimento:'Abastecimento',
+  medicao:      'Medição do posto',
   manutencao:   'Manutenção',
   monitoramento: 'Monitoramento',
 };
@@ -420,6 +421,7 @@ function renderizarAba(nome) {
   if (nome === 'indicadores') el.innerHTML = htmlIndicadores(dadosGlobais);
   else if (nome === 'locacao') el.innerHTML = htmlLocacao(dadosGlobais);
   else if (nome === 'abastecimento') { renderAbastecimento(); return; }
+  else if (nome === 'medicao') { renderMedicao(); return; }
   else if (nome === 'manutencao') { renderManutencao().then(() => configurarManutencao()); return; }
   else if (nome === 'monitoramento') { renderMonitoramento(); return; }
 }
