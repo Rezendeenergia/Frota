@@ -18,6 +18,7 @@ Dois produtos num serviço só:
   - `estoqueService.js` — placeholder (card "Em breve").
   - `rastreamento.js` — API do rastreamento (login próprio, importação, consultas, evidências, usuários); todo acesso ao Supabase passa por aqui com a chave de serviço.
   - `formatters.js` — moeda e datas em pt-BR.
+  - `medicao.js` — aba "Medição do posto": lê o borderô em PDF e compara com as requisições (`requests`) do Abast; só leitura. Rotas em `frota.js` (`/api/frota/medicao/*`); tela em `public/medicao.js`.
 - `public/` — `index.html` + `app.js` (TV, tema escuro); `rastreamento.html` + `rastreamento.js`; regras do rastreamento em `fora-horario-core.js` e `ociosidade-core.js`; `xlsx-mini.js` lê a planilha no navegador.
 - `server/test-run.mjs` — roda a agregação de manutenção sobre `server/test-fixture.xlsx` (`node server/test-run.mjs`). Rode depois de mexer na leitura da planilha de manutenção.
 - Rodar local: `npm install && npm run dev`.

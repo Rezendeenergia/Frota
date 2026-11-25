@@ -13,6 +13,7 @@ import crypto from 'node:crypto';
 import { ConfidentialClientApplication } from '@azure/msal-node';
 import { fetchFrota } from './frotaService.js';
 import { fetchAbastecimento } from './abastecimentoService.js';
+import { lerBorderoPdf, compararMedicao, validarEntrada, gerarXlsx, PdfSemTextoError } from './medicao.js';
 
 // ---------------- Supabase (banco Abast) ----------------
 const SB_URL = (process.env.RAST_SUPABASE_URL || 'https://horvznvaytzhwrmwjwxv.supabase.co').replace(/\/$/, '');
@@ -636,6 +637,79 @@ export function criarRouterFrota() {
     } catch (err) {
       console.error('[frota/abast-det]', err?.message || err);
       res.status(502).json({ erro: 'Falha ao buscar dados de abastecimento.' });
+    }
+  });
+
+  // ------------------------------------------------------------------ //
+  // Medição do posto: compara o que o posto cobra (borderô/cupons) com as
+  // requisições do sistema. Só lê o banco — não altera nenhuma requisição.
+  // ------------------------------------------------------------------ //
+  let _postosCache = null;
+  let _postosCacheAt = 0;
+
+  // Lista de postos que têm requisição (para o seletor da tela). Cache de 10 min.
+  r.get('/medicao/postos', autenticar, async (req, res) => {
+    if (!SB_KEY) return res.status(503).json({ erro: 'Banco de abastecimento não configurado.' });
+    try {
+      if (!_postosCache || Date.now() - _postosCacheAt > 10 * 60 * 1000) {
+        const linhas = await sbFetchTodos('/requests?select=id,gas_station&gas_station=not.is.null&order=id.asc');
+        _postosCache = [...new Set(linhas.map((l) => (l.gas_station || '').trim()).filter(Boolean))]
+          .sort((a, b) => a.localeCompare(b, 'pt-BR'));
+        _postosCacheAt = Date.now();
+      }
+      res.json({ postos: _postosCache });
+    } catch (err) {
+      console.error('[frota/medicao] postos:', err?.message || err);
+      res.status(502).json({ erro: 'Falha ao carregar a lista de postos.' });
+    }
+  });
+
+  // Recebe o PDF do borderô (corpo binário, application/pdf) e devolve as notas lidas.
+  r.post('/medicao/ler-pdf', autenticar, express.raw({ type: 'application/pdf', limit: '20mb' }), async (req, res) => {
+    if (!Buffer.isBuffer(req.body) || req.body.length < 100) {
+      return res.status(400).json({ erro: 'Envie um arquivo PDF.' });
+    }
+    try {
+      res.json(await lerBorderoPdf(req.body));
+    } catch (err) {
+      if (err instanceof PdfSemTextoError) return res.status(422).json({ erro: err.message });
+      console.error('[frota/medicao] ler-pdf:', err?.message || err);
+      res.status(422).json({ erro: 'Não consegui abrir este PDF. Digite os cupons manualmente.' });
+    }
+  });
+
+  // Compara as notas do posto com as requisições do período.
+  r.post('/medicao/comparar', autenticar, async (req, res) => {
+    if (!SB_KEY) return res.status(503).json({ erro: 'Banco de abastecimento não configurado.' });
+    const entrada = req.body || {};
+    const erro = validarEntrada(entrada);
+    if (erro) return res.status(400).json({ erro });
+    try {
+      res.json(await compararMedicao({ buscar: sbFetchTodos, ...entrada }));
+    } catch (err) {
+      console.error('[frota/medicao] comparar:', err?.message || err);
+      res.status(502).json({ erro: 'Falha ao comparar com o sistema de abastecimento.' });
+    }
+  });
+
+  // Mesma comparação, devolvida como planilha do Excel.
+  r.post('/medicao/exportar', autenticar, async (req, res) => {
+    if (!SB_KEY) return res.status(503).json({ erro: 'Banco de abastecimento não configurado.' });
+    const entrada = req.body || {};
+    const erro = validarEntrada(entrada);
+    if (erro) return res.status(400).json({ erro });
+    try {
+      const resultado = await compararMedicao({ buscar: sbFetchTodos, ...entrada });
+      const arquivo = await gerarXlsx(resultado);
+      const nome = `Medicao_${resultado.posto.replace(/[^A-Za-z0-9]+/g, '_')}_${resultado.de}_a_${resultado.ate}.xlsx`;
+      res.set({
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition': `attachment; filename="${nome}"`,
+      });
+      res.send(arquivo);
+    } catch (err) {
+      console.error('[frota/medicao] exportar:', err?.message || err);
+      res.status(502).json({ erro: 'Falha ao gerar a planilha.' });
     }
   });
 

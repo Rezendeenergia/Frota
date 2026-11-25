@@ -140,3 +140,16 @@ Tabelas `rast_usuarios`, `rast_importacoes`, `rast_viagens`, `rast_ociosidade`, 
 | `RAST_SUPABASE_URL` | opcional — padrão é o projeto Abast |
 
 Sem essas variáveis, o painel da TV e a Central da Frota continuam funcionando normalmente; só a aba Monitoramento/`/rastreamento` mostra "não configurado".
+
+## Medição do posto (aba "Medição do posto" em `/frota`)
+
+Para o financeiro conferir se o que o posto cobra (borderô ou cupons) bate com as requisições do sistema de abastecimento: mesma quantidade e mesmo valor.
+
+- **Entrada:** borderô em PDF com texto (hoje o formato do Auto Posto Amanhecer; lê número da NC, emissão, código, tipo e valor e confere com o total impresso no rodapé) ou cupons digitados na tela (documento, data, combustível, valor; litros e placa são opcionais). PDF digitalizado e foto de cupom **não** são lidos sozinhos: digitar.
+- **Comparação** (`server/lib/medicao.js`): casa cada documento com uma requisição do posto por **dia + valor + combustível** (o código impresso pelo posto, como LAN-CHA9, não identifica a requisição). A requisição pode estar até 2 dias antes/depois da nota. Passadas, da mais exata para a mais frouxa: confere → confere com data diferente → valor diferente (até 15%). O que sobra vira "nota sem requisição" ou "requisição sem nota".
+- **Status considerados:** concluída, assinada (sem baixa) e pendente; anuladas e recusadas ficam de fora. "Assinada" aparece com aviso, porque o posto já cobra, mas a requisição ainda não foi concluída.
+- **Só lê o banco:** nada aqui altera requisição. Correção continua sendo feita pela TI.
+- **Rotas** (login da Central da Frota): `GET /api/frota/medicao/postos`, `POST /api/frota/medicao/ler-pdf` (corpo = PDF), `POST /api/frota/medicao/comparar`, `POST /api/frota/medicao/exportar` (devolve o .xlsx).
+- **Sem mudança de banco.** Nova dependência: `pdfjs-dist` (leitura do PDF no servidor).
+- Os dados digitados ficam só na tela (não são gravados). Se o histórico das medições for necessário, vai precisar de tabela nova (`.sql` para o dono aplicar).
+
