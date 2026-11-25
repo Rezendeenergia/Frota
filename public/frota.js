@@ -840,16 +840,18 @@ function _renderAbastDetalhes(det) {
       <h3 class="secao-titulo">Por posto</h3>
       <div class="tabela-wrap">
         <table>
-          <thead><tr><th>Posto</th><th style="text-align:right">Litros</th><th style="text-align:right">Abast.</th></tr></thead>
+          <thead><tr><th>Posto</th><th style="text-align:right">Litros</th><th style="text-align:right">Valor</th><th style="text-align:right">Abast.</th></tr></thead>
           <tbody>
             ${det.postos.map((p) => `<tr>
               <td>${esc(p.posto)}</td>
               <td style="text-align:right">${num(p.litros)} L</td>
+              <td style="text-align:right">${p.valor != null ? moeda(p.valor) : '—'}</td>
               <td style="text-align:right">${p.contagem}</td>
             </tr>`).join('')}
           </tbody>
         </table>
       </div>
+      ${det.aguardandoBaixa?.contagem ? `<p style="font-size:.8rem;opacity:.7;margin:.5rem 0 0">Não incluídos: ${det.aguardandoBaixa.contagem} abastecimento(s) assinado(s) ainda sem baixa (${num(det.aguardandoBaixa.litros)} L).</p>` : ''}
     </div>` : '';
 
   // ---- Tabela de placas (paginada) ----
