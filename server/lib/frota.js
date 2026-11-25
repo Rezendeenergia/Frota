@@ -352,34 +352,47 @@ export function criarRouterFrota() {
     const periodo = ['hoje', '7dias', '30dias', 'mes'].includes(req.query.periodo)
       ? req.query.periodo : '30dias';
 
+    // Fuso de Santarém-PA (UTC−3, sem horário de verão). O servidor do Render roda
+    // em UTC, então "dia" e "mês" precisam ser calculados nesse fuso — senão um
+    // abastecimento feito depois das 21h cai no dia/mês seguinte.
+    const OFFSET_MS = 3 * 3600 * 1000;
+    // Meia-noite (horário de Santarém) do dia/mês pedido, em ms UTC.
+    const meiaNoiteLocal = (ano, mesIdx, dia) => Date.UTC(ano, mesIdx, dia, 3, 0, 0, 0);
     const agora = new Date();
-    let dataInicio;
-    let dataFimCustom = null;
+    const agoraLocal = new Date(agora.getTime() - OFFSET_MS); // getUTC* = horário de Santarém
+    let dataInicioMs;
+    let dtFimCustomMs = null;
     if (filtroMes) {
       // Filtro de mês específico: ignora data livre/período e usa o mês inteiro
       const [ano, mes] = filtroMes.split('-').map(Number);
-      dataInicio = new Date(ano, mes - 1, 1);
+      dataInicioMs = meiaNoiteLocal(ano, mes - 1, 1);
     } else if (filtroDataInicio) {
       // Intervalo de data livre escolhido na tela
       const [ano, mes, dia] = filtroDataInicio.split('-').map(Number);
-      dataInicio = new Date(ano, mes - 1, dia, 0, 0, 0, 0);
+      dataInicioMs = meiaNoiteLocal(ano, mes - 1, dia);
       if (filtroDataFim) {
         const [anoF, mesF, diaF] = filtroDataFim.split('-').map(Number);
-        dataFimCustom = new Date(anoF, mesF - 1, diaF, 23, 59, 59, 999);
+        dtFimCustomMs = meiaNoiteLocal(anoF, mesF - 1, diaF + 1); // até o fim do dia final
       }
     } else if (periodo === 'hoje') {
-      dataInicio = new Date(agora); dataInicio.setHours(0,0,0,0);
+      dataInicioMs = meiaNoiteLocal(agoraLocal.getUTCFullYear(), agoraLocal.getUTCMonth(), agoraLocal.getUTCDate());
     } else if (periodo === '7dias') {
-      dataInicio = new Date(agora); dataInicio.setDate(agora.getDate() - 7);
+      dataInicioMs = agora.getTime() - 7 * 86400000;
     } else if (periodo === '30dias') {
-      dataInicio = new Date(agora); dataInicio.setDate(agora.getDate() - 30);
+      dataInicioMs = agora.getTime() - 30 * 86400000;
     } else { // mes (preset antigo, sem mês escolhido: mês corrente)
-      dataInicio = new Date(agora.getFullYear(), agora.getMonth(), 1);
+      dataInicioMs = meiaNoiteLocal(agoraLocal.getUTCFullYear(), agoraLocal.getUTCMonth(), 1);
     }
-    const dtIso = dataInicio.toISOString();
+    // Mês (YYYY-MM) de um carimbo ISO, no horário de Santarém
+    const mesLocalDe = (iso) => {
+      const t = Date.parse(iso);
+      return Number.isNaN(t) ? '' : new Date(t - OFFSET_MS).toISOString().substring(0, 7);
+    };
 
     // Para histórico mensal buscamos sempre 13 meses atrás (mês atual + 12 anteriores)
-    const dtHistoricoInicio = new Date(agora.getFullYear(), agora.getMonth() - 12, 1).toISOString();
+    const dtHistoricoInicio = new Date(
+      meiaNoiteLocal(agoraLocal.getUTCFullYear(), agoraLocal.getUTCMonth() - 12, 1)
+    ).toISOString();
 
     try {
       // Converte litros de "50.0 L" para número
@@ -394,14 +407,19 @@ export function criarRouterFrota() {
       }
 
       // Busca todos os abastecimentos dos últimos 13 meses (para histórico + período filtrado)
-      // Uma única chamada evita requests duplicados
-      let url = `/requests?select=plate,vehicle,gas_station,fuel_type,liters,km,km_before,price_per_liter,real_value,date` +
-        `&status=in.(completed,signed)&plate=not.is.null&date=gte.${encodeURIComponent(dtHistoricoInicio)}` +
+      // Uma única chamada evita requests duplicados.
+      // Traz TODOS os concluídos (inclusive bombona, carote e "sem placa": também são
+      // combustível comprado e pago ao posto) e os assinados que têm placa.
+      let url = `/requests?select=status,plate,vehicle,gas_station,fuel_type,liters,km,km_before,price_per_liter,real_value,date` +
+        `&status=in.(completed,signed)&date=gte.${encodeURIComponent(dtHistoricoInicio)}` +
         `&order=date.asc&limit=10000`;
       if (filtroPlaca) url += `&plate=eq.${encodeURIComponent(filtroPlaca)}`;
       if (filtroPosto) url += `&gas_station=eq.${encodeURIComponent(filtroPosto)}`;
 
-      const todosRows = await sbFetch(url, { headers: { 'Prefer': 'count=none' } });
+      const linhas = await sbFetch(url, { headers: { 'Prefer': 'count=none' } });
+      // "Assinado" = motorista assinou, mas o posto ainda não deu baixa: não tem valor
+      // real e não entra no financeiro. Só entra se tiver placa (tabela por veículo).
+      const todosRows = linhas.filter((r) => r.status === 'completed' || (r.plate || '').trim() !== '');
 
       // Veículos controlados por horímetro (horas), não por hodômetro (km):
       // geradores, tratores, retroescavadeiras e embarcações. Pra esses, km/km_before
@@ -427,13 +445,13 @@ export function criarRouterFrota() {
       const MAX_KM_ENTRE_ABASTECIMENTOS = 8000;
 
       // ---- Separa: linhas do período filtrado vs. todos os 13 meses ----
-      const dtInicioMs = new Date(dtIso).getTime();
+      const dtInicioMs = dataInicioMs;
       let dtFimMs = Infinity;
       if (filtroMes) {
         const [ano, mes] = filtroMes.split('-').map(Number);
-        dtFimMs = new Date(ano, mes, 1).getTime(); // primeiro dia do mês seguinte
-      } else if (dataFimCustom) {
-        dtFimMs = dataFimCustom.getTime();
+        dtFimMs = meiaNoiteLocal(ano, mes, 1); // primeiro dia do mês seguinte
+      } else if (dtFimCustomMs != null) {
+        dtFimMs = dtFimCustomMs;
       }
 
       const rows = todosRows.filter((r) => {
@@ -445,6 +463,9 @@ export function criarRouterFrota() {
       let totalLitros = 0;
       let totalKmRodados = 0;
       let totalValor = 0;
+      let totalConcluidos = 0;
+      let litrosVeiculos = 0; // litros das linhas com placa (base do km/L, como antes)
+      const aguardandoBaixa = { contagem: 0, litros: 0 };
 
       const porPlaca  = {};
       const porPosto  = {};
@@ -458,9 +479,29 @@ export function criarRouterFrota() {
         const placa  = (row.plate || '').trim().toUpperCase();
         const posto  = (row.gas_station || 'Não informado').trim();
         const comb   = (row.fuel_type   || 'Não informado').trim();
+        const concluido = row.status === 'completed';
 
-        totalLitros += litros;
-        totalValor  += valor;
+        // Financeiro (totais, posto, combustível): só abastecimento concluído,
+        // com ou sem placa — é o que bate com o que o posto cobra.
+        if (concluido) {
+          totalConcluidos += 1;
+          totalLitros += litros;
+          totalValor  += valor;
+          if (!porPosto[posto]) porPosto[posto] = { litros:0, valor:0, contagem:0 };
+          porPosto[posto].litros   += litros;
+          porPosto[posto].valor    += valor;
+          porPosto[posto].contagem += 1;
+          if (!porCombustivel[comb]) porCombustivel[comb] = { litros:0, contagem:0 };
+          porCombustivel[comb].litros   += litros;
+          porCombustivel[comb].contagem += 1;
+        } else {
+          aguardandoBaixa.contagem += 1;
+          aguardandoBaixa.litros   += litros;
+        }
+
+        // Por veículo / km por litro: só linhas com placa (concluídas ou assinadas).
+        if (!placa) continue;
+        litrosVeiculos += litros;
 
         const controlaPorHorimetro = placasHorimetro.has(placa);
         let kmRodados = (!controlaPorHorimetro && km > 0 && kmBef > 0 && km > kmBef) ? (km - kmBef) : 0;
@@ -473,20 +514,10 @@ export function criarRouterFrota() {
           porPlaca[placa].kmRodados += kmRodados;
           porPlaca[placa].contagem  += 1;
         }
-        if (posto) {
-          if (!porPosto[posto]) porPosto[posto] = { litros:0, contagem:0 };
-          porPosto[posto].litros   += litros;
-          porPosto[posto].contagem += 1;
-        }
-        if (comb) {
-          if (!porCombustivel[comb]) porCombustivel[comb] = { litros:0, contagem:0 };
-          porCombustivel[comb].litros   += litros;
-          porCombustivel[comb].contagem += 1;
-        }
       }
 
-      const kmLMedio = (totalKmRodados > 0 && totalLitros > 0)
-        ? (totalKmRodados / totalLitros) : null;
+      const kmLMedio = (totalKmRodados > 0 && litrosVeiculos > 0)
+        ? (totalKmRodados / litrosVeiculos) : null;
 
       const placas = Object.entries(porPlaca)
         .map(([placa, d]) => ({
@@ -503,6 +534,7 @@ export function criarRouterFrota() {
         .map(([posto, d]) => ({
           posto,
           litros:   Math.round(d.litros * 10) / 10,
+          valor:    Math.round(d.valor * 100) / 100,
           contagem: d.contagem,
         }))
         .sort((a, b) => b.litros - a.litros);
@@ -520,7 +552,8 @@ export function criarRouterFrota() {
       // Coleta lista de meses únicos presentes nos dados
       const porMes = {}; // "YYYY-MM" => { litros, valor, contagem }
       for (const row of todosRows) {
-        const mesKey = (row.date || '').substring(0, 7); // "YYYY-MM"
+        if (row.status !== 'completed') continue; // histórico financeiro: só concluídos
+        const mesKey = mesLocalDe(row.date); // "YYYY-MM" no horário de Santarém
         if (!mesKey) continue;
         if (!porMes[mesKey]) porMes[mesKey] = { litros: 0, valor: 0, contagem: 0 };
         porMes[mesKey].litros   += parseLitros(row.liters);
@@ -557,11 +590,15 @@ export function criarRouterFrota() {
           placa: filtroPlaca, posto: filtroPosto, mes: filtroMes,
           dataInicio: filtroDataInicio, dataFim: filtroDataFim,
         },
-        totalAbastecimentos: rows.length,
+        totalAbastecimentos: totalConcluidos,
+        aguardandoBaixa: {
+          contagem: aguardandoBaixa.contagem,
+          litros:   Math.round(aguardandoBaixa.litros * 10) / 10,
+        },
         totalLitros:  Math.round(totalLitros * 10) / 10,
         totalValor:   Math.round(totalValor * 100) / 100,
         kmLMedio:     kmLMedio !== null ? Math.round(kmLMedio * 100) / 100 : null,
-        mediaLPorAbast: rows.length > 0 ? Math.round(totalLitros / rows.length * 10) / 10 : 0,
+        mediaLPorAbast: totalConcluidos > 0 ? Math.round(totalLitros / totalConcluidos * 10) / 10 : 0,
         placas,
         postos,
         combustiveis,
