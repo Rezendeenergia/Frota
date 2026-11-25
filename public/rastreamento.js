@@ -80,17 +80,8 @@ async function api(caminho, { method = 'GET', body } = {}) {
   return data;
 }
 
-// ======================= tema claro / noturno =======================
-function aplicarTema(tema) {
-  if (tema === 'dark') document.documentElement.dataset.theme = 'dark';
-  else delete document.documentElement.dataset.theme;
-  try { localStorage.setItem('rast.tema', tema); } catch { /* sem storage: vale só nesta aba */ }
-  document.querySelectorAll('[data-tema]').forEach((b) => { b.textContent = tema === 'dark' ? '☀️ Claro' : '🌙 Noturno'; });
-}
-document.querySelectorAll('[data-tema]').forEach((b) => b.addEventListener('click', () => {
-  aplicarTema(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
-}));
-aplicarTema(document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light');
+// Tema claro/escuro: cuidado do js/rezende-tema.js (botão [data-rz-tema]),
+// igual ao resto da Central da Frota — nada a fazer aqui.
 
 // ======================= telas / login =======================
 let usuario = null;
