@@ -331,36 +331,49 @@ export function criarRouterFrota() {
   r.get('/abastecimento-detalhado', autenticar, async (req, res) => {
     if (!SB_KEY) return res.status(503).json({ erro: 'Banco de abastecimento não configurado.' });
 
+    // Filtros adicionais
+    const filtroPlaca = (req.query.placa || '').trim().toUpperCase() || null;
+    const filtroPosto = (req.query.posto || '').trim() || null;
+    const filtroMes   = (req.query.mes   || '').trim() || null; // "YYYY-MM"
+    // Data livre (padrão novo): "YYYY-MM-DD". Se vier, manda mais que período/mês.
+    const filtroDataInicio = (req.query.dataInicio || '').trim() || null;
+    const filtroDataFim    = (req.query.dataFim    || '').trim() || null;
+
     // Chave de cache baseada nos parâmetros de filtro (não no usuário: dados são os mesmos)
-    const cacheKey = `${req.query.periodo||'30dias'}|${req.query.placa||''}|${req.query.posto||''}|${req.query.mes||''}`;
+    const cacheKey = `${req.query.periodo||'30dias'}|${filtroPlaca||''}|${filtroPosto||''}|${filtroMes||''}|${filtroDataInicio||''}|${filtroDataFim||''}`;
     const cached = ABAST_CACHE.get(cacheKey);
     if (cached && (Date.now() - cached.ts) < ABAST_CACHE_TTL) {
       res.set('X-Cache', 'HIT');
       return res.json(cached.dados);
     }
 
-    // Período: hoje / 7dias / 30dias / mes
+    // Período: hoje / 7dias / 30dias / mes — mantido só como padrão de fallback
+    // (a tela não mostra mais esses botões; ela manda dataInicio/dataFim ou mes).
     const periodo = ['hoje', '7dias', '30dias', 'mes'].includes(req.query.periodo)
       ? req.query.periodo : '30dias';
 
-    // Filtros adicionais
-    const filtroPlaca = (req.query.placa || '').trim().toUpperCase() || null;
-    const filtroPosto = (req.query.posto || '').trim() || null;
-    const filtroMes   = (req.query.mes   || '').trim() || null; // "YYYY-MM"
-
     const agora = new Date();
     let dataInicio;
+    let dataFimCustom = null;
     if (filtroMes) {
-      // Se filtro de mês específico, ignora período e usa o mês inteiro
+      // Filtro de mês específico: ignora data livre/período e usa o mês inteiro
       const [ano, mes] = filtroMes.split('-').map(Number);
       dataInicio = new Date(ano, mes - 1, 1);
+    } else if (filtroDataInicio) {
+      // Intervalo de data livre escolhido na tela
+      const [ano, mes, dia] = filtroDataInicio.split('-').map(Number);
+      dataInicio = new Date(ano, mes - 1, dia, 0, 0, 0, 0);
+      if (filtroDataFim) {
+        const [anoF, mesF, diaF] = filtroDataFim.split('-').map(Number);
+        dataFimCustom = new Date(anoF, mesF - 1, diaF, 23, 59, 59, 999);
+      }
     } else if (periodo === 'hoje') {
       dataInicio = new Date(agora); dataInicio.setHours(0,0,0,0);
     } else if (periodo === '7dias') {
       dataInicio = new Date(agora); dataInicio.setDate(agora.getDate() - 7);
     } else if (periodo === '30dias') {
       dataInicio = new Date(agora); dataInicio.setDate(agora.getDate() - 30);
-    } else { // mes
+    } else { // mes (preset antigo, sem mês escolhido: mês corrente)
       dataInicio = new Date(agora.getFullYear(), agora.getMonth(), 1);
     }
     const dtIso = dataInicio.toISOString();
@@ -396,6 +409,8 @@ export function criarRouterFrota() {
       if (filtroMes) {
         const [ano, mes] = filtroMes.split('-').map(Number);
         dtFimMs = new Date(ano, mes, 1).getTime(); // primeiro dia do mês seguinte
+      } else if (dataFimCustom) {
+        dtFimMs = dataFimCustom.getTime();
       }
 
       const rows = todosRows.filter((r) => {
@@ -509,8 +524,13 @@ export function criarRouterFrota() {
       const todosMeses  = historico.map((h) => ({ mes: h.mes, rotulo: h.rotulo }));
 
       const resposta = {
-        periodo: filtroMes ? `mes:${filtroMes}` : periodo,
-        filtros: { placa: filtroPlaca, posto: filtroPosto, mes: filtroMes },
+        periodo: filtroMes
+          ? `mes:${filtroMes}`
+          : (filtroDataInicio ? `data:${filtroDataInicio}_${filtroDataFim || 'hoje'}` : periodo),
+        filtros: {
+          placa: filtroPlaca, posto: filtroPosto, mes: filtroMes,
+          dataInicio: filtroDataInicio, dataFim: filtroDataFim,
+        },
         totalAbastecimentos: rows.length,
         totalLitros:  Math.round(totalLitros * 10) / 10,
         totalValor:   Math.round(totalValor * 100) / 100,
