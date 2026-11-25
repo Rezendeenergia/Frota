@@ -2,7 +2,7 @@
 
 Dois produtos num serviço só:
 1. **Painel TV** (`/`): tela para TV em modo kiosk com indicadores de **manutenção da frota**, **abastecimento** e, no futuro, **estoque de combustível por localidade**. Atualiza a cada 30 min.
-2. **Rastreamento** (`/rastreamento`): página com login para importar as planilhas do rastreador e analisar **viagens fora do horário** e **motor ligado parado**, com histórico e evidências.
+2. **Monitoramento / Rastreamento** (`/rastreamento`, embutido como aba "Monitoramento" dentro de `/frota` num `<iframe>`): importa as planilhas do rastreador e analisa **viagens fora do horário** e **motor ligado parado**, com histórico e evidências. Login único — mesma sessão da Central da Frota, sem login próprio.
 
 - Produção: Render, serviço `painel-tv-rezende` (plano free, deploy automático na `main`).
 - Sem banco próprio: o rastreamento usa tabelas `rast_*` no Supabase **Abast** (`horvznvaytzhwrmwjwxv`).
@@ -28,11 +28,11 @@ Dois produtos num serviço só:
 - Motor ligado parado: trechos com mais de 5 min; litros = horas × L/h (editável) e R$ = litros × preço médio pago no período (`fuel_records` do Abast).
 - Sem duplicidade: arquivo repetido é recusado (hash SHA-256) e cada viagem/trecho é identificado por veículo + início + fim. Todas as viagens são guardadas, então mudar uma regra vale também para o histórico.
 - Tabelas `rast_usuarios`, `rast_importacoes`, `rast_viagens`, `rast_ociosidade`, `rast_config`, funções `rast_importar` e `rast_precos`, bucket privado `rast-evidencias`. RLS ligado sem políticas: só o servidor acessa; o navegador nunca recebe chave do Supabase.
-- Login próprio (cookie `rast_sess`, 12 h). O 1º administrador é `RAST_ADMIN_EMAIL` (padrão ti@) com `RAST_ADMIN_SENHA_INICIAL`, trocada no 1º acesso.
+- Login único com a Central da Frota: mesmo cookie de sessão (`frota_sess`, criado em `/frota/login` por `server/lib/frota.js`) é lido também por `server/lib/rastreamento.js` — `FROTA_SESSION_SECRET`/`RAST_SESSION_SECRET` precisam ser o mesmo valor nas duas rotas. No 1º acesso de cada pessoa ela é criada em `rast_usuarios` como `operador`/`ativo`; `admin` e `ativo` são geridos na própria aba "Usuários", não existe mais login/senha separados do Rastreamento.
 
 ## Variáveis (Render)
 
-`SHAREPOINT_CLIENT_ID/SECRET/TENANT_ID`, `MANUTENCAO_SHARE_URL`, `MANUTENCAO_SHEET`, `ABASTECIMENTO_API_URL`, `ABASTECIMENTO_API_KEY`, `RAST_SUPABASE_URL` (opcional), `RAST_SUPABASE_SERVICE_KEY`, `RAST_SESSION_SECRET`, `RAST_ADMIN_EMAIL`, `RAST_ADMIN_SENHA_INICIAL`. Sem as `RAST_*`, a TV funciona e só o `/rastreamento` mostra "não configurado".
+`SHAREPOINT_CLIENT_ID/SECRET/TENANT_ID`, `MANUTENCAO_SHARE_URL`, `MANUTENCAO_SHEET`, `ABASTECIMENTO_API_URL`, `ABASTECIMENTO_API_KEY`, `RAST_SUPABASE_URL` (opcional), `RAST_SUPABASE_SERVICE_KEY`, `FROTA_SESSION_SECRET` (ou `RAST_SESSION_SECRET` — tem que ser o mesmo valor usado pela Central da Frota). Sem as `RAST_*`/`FROTA_SESSION_SECRET`, a TV funciona e só a aba Monitoramento/`/rastreamento` mostra "não configurado".
 
 ## Cuidados
 

@@ -53,10 +53,16 @@ async function copiarOuEmail(txt) {
 }
 
 // ======================= navegação / login =======================
+// Login único: quem não tem sessão válida vai para o login da Central da
+// Frota (/frota/login) — não existe mais um login separado do rastreamento.
 function irParaLogin(codigoErro) {
-  const url = codigoErro ? `/login?erro=${encodeURIComponent(codigoErro)}` : '/login';
+  const url = codigoErro ? `/frota/login?erro=${encodeURIComponent(codigoErro)}` : '/frota/login';
   window.location.href = url;
 }
+
+// Embutida como aba "Monitoramento" dentro da Central da Frota (?embed=1)?
+// O atributo data-embed (que esconde o cabeçalho duplicado) já é marcado
+// cedo, num script inline no <head> — ver rastreamento.html.
 
 // ======================= API =======================
 class ErroApi extends Error {}
@@ -100,9 +106,11 @@ function mostrarLogin(msg) {
   irParaLogin(mapa[msg] || (msg ? 'sessao_expirada' : null));
 }
 
+// Sair desloga da Central da Frota inteira (sessão compartilhada) —
+// não existe mais um "sair" separado só do rastreamento.
 document.querySelectorAll('[data-sair]').forEach((b) => b.addEventListener('click', async () => {
   try {
-    const r = await fetch('/api/rast/logout', { method: 'POST', credentials: 'same-origin' });
+    const r = await fetch('/api/frota/logout', { method: 'POST', credentials: 'same-origin' });
     const d = await r.json().catch(() => ({}));
     cache.clear();
     if (d?.redirect) { window.location.href = d.redirect; return; }

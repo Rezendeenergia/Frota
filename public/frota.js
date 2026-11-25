@@ -396,7 +396,7 @@ const TITULOS_ABA = {
   locacao:      'Locação',
   abastecimento:'Abastecimento',
   manutencao:   'Manutenção',
-  rastreamento: 'Rastreamento',
+  monitoramento: 'Monitoramento',
 };
 
 function trocarAba(nome) {
@@ -421,7 +421,7 @@ function renderizarAba(nome) {
   else if (nome === 'locacao') el.innerHTML = htmlLocacao(dadosGlobais);
   else if (nome === 'abastecimento') { renderAbastecimento(); return; }
   else if (nome === 'manutencao') { renderManutencao().then(() => configurarManutencao()); return; }
-  else if (nome === 'rastreamento') el.innerHTML = htmlRastreamento();
+  else if (nome === 'monitoramento') { renderMonitoramento(); return; }
 }
 
 // ------------------------------------------------------------------ //
@@ -1813,24 +1813,18 @@ function parsearCsvManut(text) {
 }
 
 // ------------------------------------------------------------------ //
-// ABA: Rastreamento
+// ABA: Monitoramento (rastreamento embutido — mesma sessão da Central da
+// Frota, sem pedir login de novo: ver server/lib/rastreamento.js)
 // ------------------------------------------------------------------ //
 
-function htmlRastreamento() {
-  return `
-    <div class="rast-promo">
-      <h2>🗺️ Rastreamento da Frota</h2>
-      <p>Análise de viagens fora do horário, motor ligado parado, histórico por veículo e evidências — tudo em uma tela dedicada.</p>
-      <ul>
-        <li>Viagens fora do expediente (seg–sex 08h–19h, sáb 08h–12h)</li>
-        <li>Motor ligado parado por mais de 5 minutos</li>
-        <li>Custo estimado de ociosidade (L/h configurável)</li>
-        <li>Histórico completo com evidências por importação</li>
-      </ul>
-      <a class="btn-primario" href="/rastreamento" target="_blank">
-        Abrir Rastreamento →
-      </a>
-    </div>`;
+function renderMonitoramento() {
+  const el = document.getElementById('conteudo');
+  el.innerHTML = `
+    <iframe
+      src="/rastreamento?embed=1"
+      class="monitoramento-iframe"
+      title="Monitoramento — viagens fora do horário e motor ligado parado"
+    ></iframe>`;
 }
 
 // ------------------------------------------------------------------ //

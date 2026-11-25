@@ -112,16 +112,20 @@ npm start
 
 Se o serviço for criado no plano **free**, ele "dorme" após um período sem acessos, e o primeiro acesso depois disso demora alguns segundos para acordar. Para uma TV ligada o dia todo, isso não chega a ser um problema real (a própria TV mantém o acesso vivo a cada 5 min), mas se notar a tela "travando" ao acordar, considere migrar para um plano pago.
 
-## Rastreamento da frota (`/rastreamento`)
+## Monitoramento / Rastreamento da frota (`/rastreamento`)
 
-Página com login para analisar as planilhas exportadas do rastreador, com histórico:
+Embutida como a aba **Monitoramento** dentro da Central da Frota (`/frota`, num `<iframe src="/rastreamento?embed=1">`), e também acessível direto em `/rastreamento`. Analisa as planilhas exportadas do rastreador, com histórico:
 
 - **Fora de horário** — viagens fora do expediente (seg–sex 08h–19h; sábado 08h–12h; domingo e feriado o dia todo; viagem que encosta no horário proibido conta inteira; ignora viagens de até 1 km). Feriados municipais/pontos facultativos são cadastrados na própria tela.
 - **Motor ligado parado** — trechos com mais de 5 min de motor ligado parado; litros = horas × L/h (parâmetro editável na tela) e R$ = litros × preço médio pago no período (tabela `fuel_records` do sistema de abastecimento).
 - **Importações** — cada planilha importada fica registrada (quem, quando, novas × já existentes) e o arquivo original é guardado como evidência (bucket privado `rast-evidencias`).
-- **Usuários** — o administrador cria acessos com senha temporária (trocada no 1º login).
+- **Usuários** — tela de administração de quem tem acesso (papel `admin`/`operador`, ativo/desativado) dentro do `rast_usuarios`; não é mais um login/senha à parte.
 
 Sem duplicidade: o mesmo arquivo é recusado (hash SHA-256) e cada viagem/trecho é identificado por `veículo + início + fim`, então planilhas com períodos sobrepostos só acrescentam o que é novo. Todas as viagens/trechos são guardados (não só os alertas): mudar uma regra vale também para o histórico.
+
+### Login único com a Central da Frota
+
+Não existe mais login nem página de login próprios do Rastreamento. Ele usa a **mesma sessão** da Central da Frota: o cookie `frota_sess` (criado em `/frota/login`, via Microsoft, pelo `server/lib/frota.js`) é lido também pelo `server/lib/rastreamento.js` — por isso `FROTA_SESSION_SECRET`/`RAST_SESSION_SECRET` precisam ser o **mesmo valor** nas duas rotas. No 1º acesso de cada pessoa, ela é criada automaticamente em `rast_usuarios` como `operador` e `ativo`; só quem já é `admin` nessa tabela (ajustado na própria tela de **Usuários**) vê essa aba.
 
 ### Banco (Supabase, projeto Abast)
 
@@ -132,9 +136,7 @@ Tabelas `rast_usuarios`, `rast_importacoes`, `rast_viagens`, `rast_ociosidade`, 
 | Variável | Valor |
 |---|---|
 | `RAST_SUPABASE_SERVICE_KEY` | Supabase → projeto **Abast** → Project Settings → API Keys → chave **secret** (`sb_secret_…`) ou a legada **service_role** |
-| `RAST_SESSION_SECRET` | texto aleatório longo (ex.: `openssl rand -hex 32`) |
-| `RAST_ADMIN_SENHA_INICIAL` | senha do 1º acesso de `ti@rezendeenergia.com.br` (trocada no 1º login; depois pode apagar a variável) |
-| `RAST_ADMIN_EMAIL` | opcional — padrão `ti@rezendeenergia.com.br` |
+| `FROTA_SESSION_SECRET` (ou `RAST_SESSION_SECRET`) | texto aleatório longo (ex.: `openssl rand -hex 32`) — tem que ser o **mesmo** usado pela Central da Frota, é a mesma sessão |
 | `RAST_SUPABASE_URL` | opcional — padrão é o projeto Abast |
 
-Sem essas variáveis, o painel da TV continua funcionando normalmente; só a página `/rastreamento` mostra "não configurado".
+Sem essas variáveis, o painel da TV e a Central da Frota continuam funcionando normalmente; só a aba Monitoramento/`/rastreamento` mostra "não configurado".
