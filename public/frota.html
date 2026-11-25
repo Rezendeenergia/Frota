@@ -237,17 +237,6 @@
       font-size: .75rem; font-weight: 600; white-space: nowrap; color: var(--texto-2);
     }
 
-    /* ── Período ── */
-    .periodo-sel { display: flex; gap: .4rem; flex-wrap: wrap; margin-bottom: 1rem; }
-    .periodo-btn {
-      background: var(--sup); border: 1px solid var(--linha);
-      color: var(--texto-2); border-radius: 8px;
-      padding: .3rem .75rem; font: 600 .82rem var(--f-texto); cursor: pointer;
-      transition: all var(--transicao);
-    }
-    .periodo-btn:hover { border-color: var(--laranja); color: var(--laranja-texto); }
-    .periodo-btn.ativo { background: var(--laranja); border-color: var(--laranja); color: var(--sobre-laranja); }
-
     /* ── Abastecimento ── */
     .abast-grid {
       display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -271,6 +260,7 @@
       min-width: 160px; max-width: 240px;
     }
     .abast-sel:focus { border-color: var(--laranja); }
+    .abast-sel:disabled { opacity: .5; cursor: not-allowed; }
     .abast-btn-limpar {
       height: 32px; padding: 0 .9rem;
       border: 1px solid var(--linha-forte); border-radius: var(--raio-p);

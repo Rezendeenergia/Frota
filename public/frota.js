@@ -450,8 +450,8 @@ function htmlIndicadores(d) {
     const tot = ab.totalGasto ?? ab.total_gasto ?? ab.totalReais;
     const lit  = ab.totalLitros ?? ab.total_litros;
     const med  = ab.precoMedio  ?? ab.preco_medio;
-    // Dados detalhados já carregados?
-    const det = (_abastDetalhadoPeriodo === periodoAbast) ? _abastDetalhado : null;
+    // Dados detalhados já carregados? (mostra oportunisticamente, se a aba de abastecimento já tiver sido aberta)
+    const det = _abastDetalhado;
     const kmL  = det?.kmLMedio;
     const topComb = det?.combustiveis?.[0];
     abastResumido = `
@@ -516,8 +516,8 @@ function htmlIndicadores(d) {
     </div>`;
 }
 
-function cardInd(label, valor, classe, detalhe) {
-  return `<div class="ind-card">
+function cardInd(label, valor, classe, detalhe, id) {
+  return `<div class="ind-card"${id ? ` id="${esc(id)}"` : ''}>
     <div class="ind-label">${esc(label)}</div>
     <div class="ind-valor ${esc(classe)}">${esc(String(valor))}</div>
     ${detalhe ? `<div class="ind-detalhe">${esc(detalhe)}</div>` : ''}
@@ -610,16 +610,24 @@ function htmlLocacao(d) {
 
 const rotulosPeriodo = { hoje: 'Hoje', '7dias': 'Últimos 7 dias', '30dias': 'Últimos 30 dias', mes: 'Este mês' };
 
-// Estado dos filtros de abastecimento
-let _abastFiltros = { placa: '', posto: '', mes: '' };
+// Data de hoje e "30 dias atrás" no formato YYYY-MM-DD (para os campos de data)
+function _dataISO(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function _dataPadraoInicio() { const d = new Date(); d.setDate(d.getDate() - 30); return _dataISO(d); }
+function _dataPadraoFim()    { return _dataISO(new Date()); }
 
-// Constrói query string com filtros e período
+// Estado dos filtros de abastecimento — padrão: data, mês e placa (+ posto, específico desta aba)
+let _abastFiltros = { placa: '', posto: '', mes: '', dataInicio: _dataPadraoInicio(), dataFim: _dataPadraoFim() };
+
+// Constrói query string com filtros (mês tem prioridade sobre o intervalo de datas)
 function _abastQuery() {
-  const p = _abastFiltros.mes ? '' : `periodo=${periodoAbast}`;
   const pl = _abastFiltros.placa ? `&placa=${encodeURIComponent(_abastFiltros.placa)}` : '';
   const po = _abastFiltros.posto ? `&posto=${encodeURIComponent(_abastFiltros.posto)}` : '';
-  const me = _abastFiltros.mes   ? `mes=${encodeURIComponent(_abastFiltros.mes)}`     : '';
-  return [p, me, pl, po].filter(Boolean).join('&');
+  if (_abastFiltros.mes) return `mes=${encodeURIComponent(_abastFiltros.mes)}${pl}${po}`;
+  const di = _abastFiltros.dataInicio ? `dataInicio=${encodeURIComponent(_abastFiltros.dataInicio)}` : '';
+  const df = _abastFiltros.dataFim    ? `&dataFim=${encodeURIComponent(_abastFiltros.dataFim)}`       : '';
+  return [di, df, pl, po].filter(Boolean).join('&');
 }
 
 // Renderiza a aba de abastecimento
@@ -627,17 +635,8 @@ async function renderAbastecimento() {
   const el = document.getElementById('conteudo');
   const ab = dadosGlobais?.abastecimento;
 
-  const selPeriodo = `
-    <div class="periodo-sel" id="selPeriodo">
-      ${['hoje','7dias','30dias','mes'].map((p) =>
-        `<button class="periodo-btn${p===periodoAbast&&!_abastFiltros.mes?' ativo':''}" data-p="${p}">${rotulosPeriodo[p]}</button>`
-      ).join('')}
-    </div>`;
-
   if (!ab || ab.disponivel === false) {
-    el.innerHTML = selPeriodo +
-      `<div class="aviso-erro">⚠️ ${esc(ab?.motivo || 'Dados de abastecimento indisponíveis.')}</div>`;
-    configurarPeriodo();
+    el.innerHTML = `<div class="aviso-erro">⚠️ ${esc(ab?.motivo || 'Dados de abastecimento indisponíveis.')}</div>`;
     return;
   }
 
@@ -646,9 +645,23 @@ async function renderAbastecimento() {
   const precoMedio  = ab.precoMedio  ?? ab.preco_medio;
   const abastCount  = ab.abastecimentos ?? ab.total ?? ab.count;
 
-  el.innerHTML = selPeriodo + `
-    <!-- Barra de filtros -->
+  el.innerHTML = `
+    <!-- Barra de filtros: data, mês e placa (padrão de todas as abas de análise) + posto -->
     <div class="abast-filtros" id="abast-filtros">
+      <div class="abast-filtro-grupo">
+        <label class="abast-filtro-label">De</label>
+        <input type="date" id="abast-data-inicio" class="abast-sel" value="${esc(_abastFiltros.dataInicio)}">
+      </div>
+      <div class="abast-filtro-grupo">
+        <label class="abast-filtro-label">Até</label>
+        <input type="date" id="abast-data-fim" class="abast-sel" value="${esc(_abastFiltros.dataFim)}">
+      </div>
+      <div class="abast-filtro-grupo">
+        <label class="abast-filtro-label">Mês</label>
+        <select id="abast-sel-mes" class="abast-sel">
+          <option value="">Intervalo acima</option>
+        </select>
+      </div>
       <div class="abast-filtro-grupo">
         <label class="abast-filtro-label">Placa</label>
         <select id="abast-sel-placa" class="abast-sel">
@@ -661,35 +674,27 @@ async function renderAbastecimento() {
           <option value="">Todos</option>
         </select>
       </div>
-      <div class="abast-filtro-grupo">
-        <label class="abast-filtro-label">Mês</label>
-        <select id="abast-sel-mes" class="abast-sel">
-          <option value="">Período acima</option>
-        </select>
-      </div>
       <button id="abast-btn-limpar" class="abast-btn-limpar" title="Limpar filtros">✕ Limpar filtros</button>
     </div>
     <!-- Cards básicos -->
     <div class="abast-grid" id="abast-cards">
-      ${totalGasto  != null ? cardInd('Total gasto',    moeda(totalGasto),     'laranja', '') : ''}
-      ${totalLitros != null ? cardInd('Litros totais',  num(totalLitros)+' L', '', '') : ''}
-      ${precoMedio  != null ? cardInd('Preço médio',    moeda(precoMedio)+'/L', '', '') : ''}
-      ${abastCount  != null ? cardInd('Abastecimentos', num(abastCount),       '', '') : ''}
+      ${totalGasto  != null ? cardInd('Total gasto',    moeda(totalGasto),     'laranja', '', 'card-total-gasto') : ''}
+      ${totalLitros != null ? cardInd('Litros totais',  num(totalLitros)+' L', '', '', 'card-litros-totais') : ''}
+      ${precoMedio  != null ? cardInd('Preço médio',    moeda(precoMedio)+'/L', '', '', 'card-preco-medio') : ''}
+      ${abastCount  != null ? cardInd('Abastecimentos', num(abastCount),       '', '', 'card-abastecimentos') : ''}
       <div id="card-kml" class="ind-card"><div class="ind-label">Média km/L</div><div class="ind-valor">—</div></div>
     </div>
     <!-- Área de detalhes e gráficos -->
     <div id="abast-detalhes"><div class="estado-global" style="font-size:.9rem;color:var(--texto-2)">Carregando…</div></div>`;
 
-  configurarPeriodo();
-
-  // Carrega detalhes
-  if (_abastDetalhado && _abastDetalhadoPeriodo === periodoAbast + JSON.stringify(_abastFiltros)) {
+  // Carrega detalhes (cards acima são atualizados a partir daqui — ver _renderAbastDetalhes)
+  if (_abastDetalhado && _abastDetalhadoPeriodo === JSON.stringify(_abastFiltros)) {
     _renderAbastDetalhes(_abastDetalhado);
   } else {
     try {
       const det = await api('/abastecimento-detalhado?' + _abastQuery());
       _abastDetalhado = det;
-      _abastDetalhadoPeriodo = periodoAbast + JSON.stringify(_abastFiltros);
+      _abastDetalhadoPeriodo = JSON.stringify(_abastFiltros);
       _renderAbastDetalhes(det);
     } catch (err) {
       const divDet = document.getElementById('abast-detalhes');
@@ -701,6 +706,32 @@ async function renderAbastecimento() {
 function _renderAbastDetalhes(det) {
   // Preenche selects de filtro com as opções disponíveis
   _preencherFiltrosAbast(det.opcoes || {});
+
+  // ---- Atualiza os cards de topo com os totais já filtrados (corrige o card
+  // "Litros totais" etc. que antes ficava travado no valor do carregamento
+  // inicial e não acompanhava placa/posto/mês/data) ----
+  const totalLitrosDet = det.totalLitros;
+  const totalValorDet  = det.totalValor;
+  const abastCountDet  = det.totalAbastecimentos;
+  const precoMedioDet  = (totalLitrosDet > 0) ? (totalValorDet / totalLitrosDet) : null;
+
+  const cardTotalGasto = document.getElementById('card-total-gasto');
+  if (cardTotalGasto && totalValorDet != null) {
+    cardTotalGasto.querySelector('.ind-valor').textContent = moeda(totalValorDet);
+  }
+  const cardLitrosTotais = document.getElementById('card-litros-totais');
+  if (cardLitrosTotais && totalLitrosDet != null) {
+    cardLitrosTotais.querySelector('.ind-valor').textContent = num(totalLitrosDet) + ' L';
+  }
+  const cardPrecoMedio = document.getElementById('card-preco-medio');
+  if (cardPrecoMedio) {
+    cardPrecoMedio.querySelector('.ind-valor').textContent =
+      precoMedioDet != null ? moeda(precoMedioDet) + '/L' : '—';
+  }
+  const cardAbastecimentos = document.getElementById('card-abastecimentos');
+  if (cardAbastecimentos && abastCountDet != null) {
+    cardAbastecimentos.querySelector('.ind-valor').textContent = num(abastCountDet);
+  }
 
   // Atualiza card km/L
   const cardKml = document.getElementById('card-kml');
@@ -998,12 +1029,14 @@ function _renderAbastDetalhes(det) {
   }
 }
 
-// Preenche os selects de filtro com as opções vindas da API
+// Preenche os selects/campos de filtro com as opções vindas da API
 function _preencherFiltrosAbast(opcoes) {
-  const selPlaca = document.getElementById('abast-sel-placa');
-  const selPosto = document.getElementById('abast-sel-posto');
-  const selMes   = document.getElementById('abast-sel-mes');
-  if (!selPlaca || !selPosto || !selMes) return;
+  const inpDataIni = document.getElementById('abast-data-inicio');
+  const inpDataFim = document.getElementById('abast-data-fim');
+  const selPlaca   = document.getElementById('abast-sel-placa');
+  const selPosto   = document.getElementById('abast-sel-posto');
+  const selMes     = document.getElementById('abast-sel-mes');
+  if (!selPlaca || !selPosto || !selMes || !inpDataIni || !inpDataFim) return;
 
   // Placa
   const placas = opcoes.placas || [];
@@ -1017,24 +1050,38 @@ function _preencherFiltrosAbast(opcoes) {
 
   // Mês
   const meses = opcoes.meses || [];
-  selMes.innerHTML = '<option value="">Período acima</option>' +
+  selMes.innerHTML = '<option value="">Intervalo acima</option>' +
     meses.slice().reverse().map((m) => `<option value="${esc(m.mes)}"${_abastFiltros.mes===m.mes?' selected':''}>${esc(m.rotulo)}</option>`).join('');
 
-  // Eventos dos selects
+  // Desabilita data/mês conforme qual filtro está em uso (são mutuamente exclusivos)
+  inpDataIni.disabled = inpDataFim.disabled = !!_abastFiltros.mes;
+
+  // Eventos
   selPlaca.onchange = () => { _abastFiltros.placa = selPlaca.value; _recarregarDetAbast(); };
   selPosto.onchange = () => { _abastFiltros.posto = selPosto.value; _recarregarDetAbast(); };
   selMes.onchange   = () => {
     _abastFiltros.mes = selMes.value;
-    // Se selecionou mês específico, retira destaque dos botões de período
-    document.querySelectorAll('.periodo-btn').forEach((b) => b.classList.toggle('ativo', !_abastFiltros.mes && b.dataset.p === periodoAbast));
+    inpDataIni.disabled = inpDataFim.disabled = !!_abastFiltros.mes;
+    _recarregarDetAbast();
+  };
+  inpDataIni.onchange = () => {
+    _abastFiltros.dataInicio = inpDataIni.value;
+    _abastFiltros.mes = ''; // intervalo de datas manda mais que o mês
+    selMes.value = '';
+    _recarregarDetAbast();
+  };
+  inpDataFim.onchange = () => {
+    _abastFiltros.dataFim = inpDataFim.value;
+    _abastFiltros.mes = '';
+    selMes.value = '';
     _recarregarDetAbast();
   };
 
-  // Botão limpar filtros
+  // Botão limpar filtros — volta para os últimos 30 dias
   const btnLimpar = document.getElementById('abast-btn-limpar');
   if (btnLimpar) {
     btnLimpar.onclick = () => {
-      _abastFiltros = { placa: '', posto: '', mes: '' };
+      _abastFiltros = { placa: '', posto: '', mes: '', dataInicio: _dataPadraoInicio(), dataFim: _dataPadraoFim() };
       _abastDetalhado = null;
       renderAbastecimento();
     };
@@ -1048,33 +1095,12 @@ async function _recarregarDetAbast() {
   try {
     const det = await api('/abastecimento-detalhado?' + _abastQuery());
     _abastDetalhado = det;
-    _abastDetalhadoPeriodo = periodoAbast + JSON.stringify(_abastFiltros);
+    _abastDetalhadoPeriodo = JSON.stringify(_abastFiltros);
     _renderAbastDetalhes(det);
   } catch (err) {
     const dv = document.getElementById('abast-detalhes');
     if (dv) dv.innerHTML = `<div class="aviso-erro">⚠️ ${esc(err.message)}</div>`;
   }
-}
-
-function configurarPeriodo() {
-  document.querySelectorAll('.periodo-btn').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      if (btn.dataset.p === periodoAbast && !_abastFiltros.mes) return;
-      periodoAbast = btn.dataset.p;
-      _abastFiltros.mes = ''; // limpa filtro de mês ao clicar no período
-      _abastDetalhado = null;
-      document.querySelectorAll('.periodo-btn').forEach((b) => b.classList.toggle('ativo', b.dataset.p === periodoAbast));
-      try {
-        const ab = await api('/abastecimento?periodo=' + periodoAbast);
-        dadosGlobais = { ...dadosGlobais, abastecimento: ab };
-        renderizarAba('abastecimento');
-      } catch (err) {
-        const el = document.getElementById('conteudo');
-        if (el) el.insertAdjacentHTML('afterbegin',
-          `<div class="aviso-erro">⚠️ ${esc(err.message)}</div>`);
-      }
-    });
-  });
 }
 
 // ------------------------------------------------------------------ //
