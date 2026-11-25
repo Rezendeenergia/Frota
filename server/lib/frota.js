@@ -38,6 +38,22 @@ async function sbFetch(path, opts = {}) {
   return res.json();
 }
 
+// O Supabase devolve no máximo 1000 linhas por consulta, mesmo com limit=10000.
+// Esta função busca em páginas de 1000 até acabar, para não cortar os dados
+// (foi o que fez a tela mostrar só até julho). A consulta precisa ter `order`
+// com desempate (ex.: date.asc,id.asc) para as páginas não repetirem linhas.
+async function sbFetchTodos(path, opts = {}) {
+  const TAM = 1000;
+  const todas = [];
+  const sep = path.includes('?') ? '&' : '?';
+  for (let offset = 0; offset < 200000; offset += TAM) {
+    const pagina = await sbFetch(`${path}${sep}limit=${TAM}&offset=${offset}`, opts);
+    todas.push(...pagina);
+    if (pagina.length < TAM) break;
+  }
+  return todas;
+}
+
 // Gera chave de deduplicação para um registro de manutenção
 function manutChave(r) {
   // OSM + item: uma OSM pode ter múltiplas linhas (peças/serviços diferentes)
@@ -251,7 +267,7 @@ export function criarRouterFrota() {
   // GET /api/frota/manut — carrega todos os registros salvos
   r.get('/manut', autenticar, async (req, res) => {
     try {
-      const rows = await sbFetch('/frota_manut_registros?select=osm,placa,modelo,data,tipo,cat,item,fornecedor,vu,qtd,vt,status,obs&order=data.desc&limit=10000');
+      const rows = await sbFetchTodos('/frota_manut_registros?select=osm,placa,modelo,data,tipo,cat,item,fornecedor,vu,qtd,vt,status,obs&order=data.desc,id.asc');
       res.json({ registros: rows });
     } catch (err) {
       console.error('[frota/manut] carregar:', err?.message || err);
@@ -410,13 +426,13 @@ export function criarRouterFrota() {
       // Uma única chamada evita requests duplicados.
       // Traz TODOS os concluídos (inclusive bombona, carote e "sem placa": também são
       // combustível comprado e pago ao posto) e os assinados que têm placa.
-      let url = `/requests?select=status,plate,vehicle,gas_station,fuel_type,liters,km,km_before,price_per_liter,real_value,date` +
+      let url = `/requests?select=id,status,plate,vehicle,gas_station,fuel_type,liters,km,km_before,price_per_liter,real_value,date` +
         `&status=in.(completed,signed)&date=gte.${encodeURIComponent(dtHistoricoInicio)}` +
-        `&order=date.asc&limit=10000`;
+        `&order=date.asc,id.asc`;
       if (filtroPlaca) url += `&plate=eq.${encodeURIComponent(filtroPlaca)}`;
       if (filtroPosto) url += `&gas_station=eq.${encodeURIComponent(filtroPosto)}`;
 
-      const linhas = await sbFetch(url, { headers: { 'Prefer': 'count=none' } });
+      const linhas = await sbFetchTodos(url, { headers: { 'Prefer': 'count=none' } });
       // "Assinado" = motorista assinou, mas o posto ainda não deu baixa: não tem valor
       // real e não entra no financeiro. Só entra se tiver placa (tabela por veículo).
       const todosRows = linhas.filter((r) => r.status === 'completed' || (r.plate || '').trim() !== '');
