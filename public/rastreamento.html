@@ -8,6 +8,9 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
 <script>
   try { if (localStorage.getItem('rast.tema') === 'dark') document.documentElement.dataset.theme = 'dark'; } catch (e) { /* sem storage: tema claro */ }
+  // Marca cedo (antes do CSS pintar) se está embutida na Central da Frota,
+  // pra esconder o cabeçalho duplicado sem piscar.
+  if (new URLSearchParams(location.search).get('embed') === '1') document.documentElement.setAttribute('data-embed', '1');
 </script>
 <style>
   :root{
@@ -54,6 +57,10 @@
   a{ color:var(--accent); }
   [hidden]{ display:none !important; }
   .shell{ max-width:1320px; margin:0 auto; padding:24px 24px 48px; display:flex; flex-direction:column; gap:18px; }
+  /* Embutida como aba "Monitoramento" dentro da Central da Frota (/frota):
+     some o cabeçalho (logo, tema, Sair) — já tem o da tela que envolve. */
+  html[data-embed] header{ display:none; }
+  html[data-embed] .shell{ padding-top:16px; }
 
   header{ display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; }
   .brand{ display:flex; align-items:center; gap:14px; }

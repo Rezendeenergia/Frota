@@ -372,26 +372,12 @@
     thead th[data-col] { cursor: pointer; user-select: none; }
     thead th[data-col]:hover { color: var(--texto); }
 
-    /* ── Rastreamento promo ── */
-    .rast-promo {
-      background: var(--sup); border: 1px solid var(--linha);
-      border-radius: var(--raio); padding: 2rem 1.75rem;
-      display: flex; flex-direction: column; gap: 1.1rem; max-width: 520px;
-      box-shadow: var(--sombra);
+    /* ── Monitoramento (rastreamento embutido) ── */
+    .monitoramento-iframe {
+      width: 100%; height: calc(100vh - 108px); min-height: 560px;
+      border: 1px solid var(--linha); border-radius: var(--raio);
+      box-shadow: var(--sombra); background: var(--sup);
     }
-    .rast-promo h2 {
-      font-family: var(--f-titulo); font-size: 1.4rem; font-weight: 600; color: var(--texto); margin: 0;
-    }
-    .rast-promo p  { font-size: .92rem; color: var(--texto-2); line-height: 1.6; margin: 0; }
-    .rast-promo ul { font-size: .88rem; color: var(--texto-2); line-height: 2; padding-left: 1.2rem; margin: 0; }
-    .btn-primario {
-      display: inline-flex; align-items: center; gap: .5rem;
-      background: var(--laranja); color: var(--sobre-laranja);
-      padding: .7rem 1.3rem; border-radius: var(--raio-p);
-      font: 600 .95rem var(--f-texto); text-decoration: none;
-      transition: background var(--transicao); align-self: flex-start;
-    }
-    .btn-primario:hover { background: var(--laranja-hover); }
 
     /* ═══════════════════════════════════════════════════
        RESPONSIVO — MOBILE
@@ -407,6 +393,7 @@
       .btn-menu { display: flex; }
       .topbar { padding: 0 16px; }
       .pagina { padding: 16px; }
+      .monitoramento-iframe { height: calc(100vh - 92px); }
       .indicadores-grid { grid-template-columns: repeat(2, 1fr); }
       .abast-grid { grid-template-columns: 1fr 1fr; }
       .grupo-nome { width: 100px; font-size: .82rem; }
@@ -471,13 +458,13 @@
         Manutenção
       </button>
 
-      <button class="nav-item" data-aba="rastreamento">
+      <button class="nav-item" data-aba="monitoramento">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/>
           <line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/>
           <line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/>
         </svg>
-        Rastreamento
+        Monitoramento
       </button>
     </nav>
 

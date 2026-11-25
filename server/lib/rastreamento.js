@@ -1,5 +1,12 @@
-// API do histórico de rastreamento (/rastreamento): login Microsoft, importação
-// das planilhas do rastreador, consulta por período, evidências e usuários.
+// API do histórico de rastreamento (embutido como aba "Monitoramento" dentro
+// da Central da Frota, /frota): importação das planilhas do rastreador,
+// consulta por período, evidências e usuários.
+//
+// Login: não tem mais fluxo próprio — usa a MESMA sessão da Central da Frota
+// (cookie "frota_sess", criado em frota.js no login Microsoft de /frota/login).
+// Quem já está logado na Central da Frota entra direto aqui; cada usuário
+// ainda precisa existir e estar ativo em rast_usuarios (criado automaticamente
+// no 1º acesso como "operador" — ver autenticar()).
 //
 // Todo acesso ao Supabase (projeto Abast) é feito AQUI, com a chave de serviço
 // guardada no Render. O navegador nunca recebe chave do Supabase — as tabelas
@@ -8,56 +15,21 @@
 // Variáveis de ambiente:
 //   RAST_SUPABASE_URL          (padrão: projeto Abast)
 //   RAST_SUPABASE_SERVICE_KEY  chave service_role / sb_secret_… do projeto Abast  [obrigatória]
-//   RAST_SESSION_SECRET        texto aleatório longo para assinar a sessão        [obrigatória]
-//   RAST_REDIRECT_URI          URL de retorno do Azure (padrão: montado pelo host)
-//   SHAREPOINT_CLIENT_ID / SHAREPOINT_CLIENT_SECRET / SHAREPOINT_TENANT_ID  (já usadas pelo painel)
+//   FROTA_SESSION_SECRET (ou RAST_SESSION_SECRET) — tem que ser a MESMA usada em
+//                              server/lib/frota.js, senão a sessão não valida aqui [obrigatória]
 
 import express from 'express';
 import crypto from 'node:crypto';
-import { ConfidentialClientApplication } from '@azure/msal-node';
 
 const SB_URL = (process.env.RAST_SUPABASE_URL || 'https://horvznvaytzhwrmwjwxv.supabase.co').replace(/\/$/, '');
 const SB_KEY = process.env.RAST_SUPABASE_SERVICE_KEY || '';
-const SESSION_SECRET = process.env.RAST_SESSION_SECRET || '';
+// Mesma sessão da Central da Frota (ver server/lib/frota.js) — login único.
+const SESSION_SECRET = process.env.FROTA_SESSION_SECRET || process.env.RAST_SESSION_SECRET || '';
 const BUCKET = 'rast-evidencias';
-const COOKIE = 'rast_sess';
-const COOKIE_LOGIN = 'rast_login'; // estado temporário da ida à Microsoft
-const SESSAO_HORAS = 12;
-const DOMINIO = '@rezendeenergia.com.br';
+const COOKIE = 'frota_sess';
+const DOMINIO = '@rezendeenergia.com.br'; // domínio exigido pra cadastrar um novo acesso em /usuarios
 
 export const configurado = () => Boolean(SB_KEY && SESSION_SECRET);
-
-// ---------------- login Microsoft ----------------
-function env(...nomes) {
-  for (const n of nomes) if (process.env[n]) return process.env[n];
-  return '';
-}
-let _msal = null;
-function msal() {
-  if (_msal) return _msal;
-  const clientId     = env('SHAREPOINT_CLIENT_ID');
-  const clientSecret = env('SHAREPOINT_CLIENT_SECRET');
-  const tenant       = env('SHAREPOINT_TENANT_ID');
-  if (!clientId || !clientSecret || !tenant) throw new Error('Login Microsoft: defina SHAREPOINT_CLIENT_ID, SHAREPOINT_CLIENT_SECRET e SHAREPOINT_TENANT_ID.');
-  _msal = new ConfidentialClientApplication({
-    auth: { clientId, clientSecret, authority: `https://login.microsoftonline.com/${tenant}` },
-  });
-  return _msal;
-}
-const ESCOPOS_MS = ['openid', 'profile', 'email'];
-function enderecoRetorno(req) {
-  if (process.env.RAST_REDIRECT_URI) return process.env.RAST_REDIRECT_URI;
-  return `${req.protocol}://${req.get('host')}/api/rast/auth/callback`;
-}
-async function urlDeLogin(opts) {
-  return msal().getAuthCodeUrl({ scopes: ESCOPOS_MS, ...opts, prompt: 'select_account' });
-}
-async function trocarCodigo(opts) {
-  const r = await msal().acquireTokenByCode({ scopes: ESCOPOS_MS, ...opts });
-  const c = r?.idTokenClaims || {};
-  const email = String(c.preferred_username || c.email || c.upn || '').trim().toLowerCase();
-  return { email, nome: c.name || email };
-}
 
 // ---------------- Supabase (REST) ----------------
 // Permite trocar o fetch nos testes.
@@ -105,13 +77,7 @@ async function sbTodos(pathBase) {
   return todos;
 }
 
-// ---------------- sessão ----------------
-const b64u = (buf) => Buffer.from(buf).toString('base64url');
-function assinar(payload) {
-  const corpo = b64u(JSON.stringify(payload));
-  const sig = crypto.createHmac('sha256', SESSION_SECRET).update(corpo).digest('base64url');
-  return `${corpo}.${sig}`;
-}
+// ---------------- sessão (só verifica — ver nota acima) ----------------
 function verificar(token) {
   if (!token || !SESSION_SECRET) return null;
   const [corpo, sig] = String(token).split('.');
@@ -128,14 +94,8 @@ function lerCookie(req, nome) {
   const m = (req.headers.cookie || '').split(';').map((s) => s.trim()).find((s) => s.startsWith(`${nome}=`));
   return m ? decodeURIComponent(m.slice(nome.length + 1)) : null;
 }
-function setCookie(req, res, nome, valor, maxAgeSeg) {
-  const seguro = req.secure || req.headers['x-forwarded-proto'] === 'https';
-  res.setHeader('Set-Cookie', `${nome}=${encodeURIComponent(valor)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeg}${seguro ? '; Secure' : ''}`);
-}
-const gravarSessao = (req, res, dados) => setCookie(req, res, COOKIE, assinar({ ...dados, exp: Date.now() + SESSAO_HORAS * 3600 * 1000 }), SESSAO_HORAS * 3600);
-const gravarLogin  = (req, res, dados) => setCookie(req, res, COOKIE_LOGIN, assinar({ ...dados, exp: Date.now() + 10 * 60 * 1000 }), 600);
-const apagarSessao = (req, res) => setCookie(req, res, COOKIE, '', 0);
-const apagarLogin  = (req, res) => setCookie(req, res, COOKIE_LOGIN, '', 0);
+// Só lê a sessão aqui — quem grava/apaga o cookie "frota_sess" é frota.js
+// (login e logout acontecem em /frota/login e /api/frota/logout).
 
 // ---------------- usuários ----------------
 async function buscarUsuario(email) {
@@ -218,70 +178,9 @@ export function criarRouter() {
   const exigirLogin = autenticar;
   const exigirAdmin = soAdmin;
 
-  // ---- login Microsoft ----
-  r.get('/microsoft', (req, res) => {
-    try {
-      const state = crypto.randomBytes(16).toString('hex');
-      const redirectUri = enderecoRetorno(req);
-      gravarLogin(req, res, { state });
-      urlDeLogin({ state, redirectUri }).then((url) => res.redirect(url)).catch((err) => {
-        console.error('[frota] login Microsoft:', err?.message || err);
-        res.redirect('/login?erro=microsoft');
-      });
-    } catch (err) {
-      console.error('[frota] login Microsoft:', err?.message || err);
-      res.redirect('/login?erro=microsoft');
-    }
-  });
-
-  r.get('/auth/callback', async (req, res) => {
-    const pendente = verificar(lerCookie(req, COOKIE_LOGIN));
-    apagarLogin(req, res);
-
-    if (req.query.error) return res.redirect('/login?erro=microsoft_negado');
-    if (!pendente?.state) return res.redirect('/login?erro=sessao_expirada');
-    if (!req.query.code || req.query.state !== pendente.state) return res.redirect('/login?erro=microsoft_callback');
-
-    let ms;
-    try {
-      ms = await trocarCodigo({ code: String(req.query.code), redirectUri: enderecoRetorno(req) });
-    } catch (err) {
-      console.error('[frota] callback Microsoft:', err?.message || err);
-      return res.redirect('/login?erro=microsoft_callback');
-    }
-
-    if (!ms.email.endsWith(DOMINIO)) return res.redirect('/login?erro=dominio');
-
-    // garante que o usuário existe no banco (cria se for 1º acesso)
-    try {
-      let u = await buscarUsuario(ms.email);
-      if (!u) {
-        [u] = await sb('/rest/v1/rast_usuarios', {
-          method: 'POST',
-          body: { email: ms.email, nome: ms.nome, papel: 'operador', ativo: true, criado_por: 'microsoft' },
-          headers: { Prefer: 'return=representation' },
-        });
-      }
-      if (!u?.ativo) return res.redirect('/login?erro=desativado');
-      await sb(`/rest/v1/rast_usuarios?email=eq.${q(ms.email)}`, { method: 'PATCH', body: { nome: ms.nome, ultimo_acesso: new Date().toISOString() } });
-    } catch (err) {
-      console.error('[frota] salvar usuário:', err?.message || err);
-      return res.redirect('/login?erro=banco');
-    }
-
-    gravarSessao(req, res, { e: ms.email, n: ms.nome });
-    console.log(`[frota] entrou: ${ms.email}`);
-    res.redirect('/rastreamento');
-  });
-
-  r.post('/logout', (req, res) => {
-    apagarSessao(req, res);
-    const tenant = env('SHAREPOINT_TENANT_ID');
-    const volta = encodeURIComponent(`${req.protocol}://${req.get('host')}/rastreamento`);
-    if (tenant) return res.json({ redirect: `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/logout?post_logout_redirect_uri=${volta}` });
-    res.json({ ok: true });
-  });
-
+  // Login e logout são só em /frota/login e /api/frota/logout (login único —
+  // ver o cabeçalho deste arquivo). Esta rota só confirma, pra tela embutida,
+  // que a sessão da Central da Frota também vale aqui e devolve papel/nome.
   r.get('/eu', exigirLogin, (req, res) => res.json(publico(req.usuario)));
 
   // ---- importação ----

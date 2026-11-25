@@ -126,11 +126,6 @@ app.get('/api/painel', async (req, res) => {
 
 app.use(express.static(PUBLIC_DIR));
 
-// Tela de login do rastreamento (padrão Rezende).
-app.get('/login', (req, res) => {
-  res.sendFile(path.join(PUBLIC_DIR, 'login.html'));
-});
-
 // Central da Frota — tela principal e tela de login.
 app.get('/frota', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'frota.html')));
 app.get('/frota/login', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'frota-login.html')));
