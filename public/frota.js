@@ -903,7 +903,7 @@ function _renderAbastDetalhes(det) {
       const inicio = pagAtual * PLACAS_POR_PAG;
       const fatia  = placasFiltradas.slice(inicio, inicio + PLACAS_POR_PAG);
       tbody.innerHTML = fatia.map((p) => `<tr>
-        <td><strong>${esc(p.placa)}</strong></td>
+        <td><strong>${esc(p.placa)}</strong>${p.controlaPorHorimetro ? ' <span class="chip" title="Controlado por horímetro (horas), não por km">horímetro</span>' : ''}</td>
         <td style="text-align:right">${num(p.litros)} L</td>
         <td style="text-align:right">${p.kmRodados > 0 ? num(p.kmRodados)+' km' : '—'}</td>
         <td style="text-align:right${p.kmL != null && p.kmL < 2 ? ';color:var(--alerta)' : ''}">

@@ -403,6 +403,29 @@ export function criarRouterFrota() {
 
       const todosRows = await sbFetch(url, { headers: { 'Prefer': 'count=none' } });
 
+      // Veículos controlados por horímetro (horas), não por hodômetro (km):
+      // geradores, tratores, retroescavadeiras e embarcações. Pra esses, km/km_before
+      // não representa distância percorrida — o cálculo de km rodados/km por litro
+      // não se aplica e fica de fora (mostra "—" na tela).
+      const TIPOS_HORIMETRO = new Set(['GERADOR', 'TRATOR', 'RETROESCAVADEIRA', 'EMBARCAÇÃO']);
+      const placasHorimetro = new Set();
+      try {
+        const veiculos = await sbFetch('/vehicles?select=plate,type');
+        for (const v of veiculos) {
+          if (TIPOS_HORIMETRO.has((v.type || '').trim().toUpperCase())) {
+            placasHorimetro.add((v.plate || '').trim().toUpperCase());
+          }
+        }
+      } catch (e) {
+        console.error('[frota/abast-det] falha ao buscar tipos de veículo:', e?.message || e);
+        // segue sem a lista — pior caso, essas placas voltam a aparecer com km (como antes)
+      }
+
+      // Guarda contra erro de digitação (ex.: horímetro ou km errado digitado no
+      // campo de km): nenhum veículo desta frota roda mais que isso entre dois
+      // abastecimentos, então acima disso o dado é descartado do cálculo.
+      const MAX_KM_ENTRE_ABASTECIMENTOS = 8000;
+
       // ---- Separa: linhas do período filtrado vs. todos os 13 meses ----
       const dtInicioMs = new Date(dtIso).getTime();
       let dtFimMs = Infinity;
@@ -439,11 +462,13 @@ export function criarRouterFrota() {
         totalLitros += litros;
         totalValor  += valor;
 
-        const kmRodados = (km > 0 && kmBef > 0 && km > kmBef) ? (km - kmBef) : 0;
+        const controlaPorHorimetro = placasHorimetro.has(placa);
+        let kmRodados = (!controlaPorHorimetro && km > 0 && kmBef > 0 && km > kmBef) ? (km - kmBef) : 0;
+        if (kmRodados > MAX_KM_ENTRE_ABASTECIMENTOS) kmRodados = 0; // dado implausível (digitação errada)
         if (kmRodados > 0) totalKmRodados += kmRodados;
 
         if (placa) {
-          if (!porPlaca[placa]) porPlaca[placa] = { litros:0, kmRodados:0, contagem:0 };
+          if (!porPlaca[placa]) porPlaca[placa] = { litros:0, kmRodados:0, contagem:0, controlaPorHorimetro };
           porPlaca[placa].litros    += litros;
           porPlaca[placa].kmRodados += kmRodados;
           porPlaca[placa].contagem  += 1;
@@ -470,6 +495,7 @@ export function criarRouterFrota() {
           kmRodados: d.kmRodados,
           kmL:       (d.kmRodados > 0 && d.litros > 0) ? Math.round(d.kmRodados / d.litros * 100) / 100 : null,
           contagem:  d.contagem,
+          controlaPorHorimetro: d.controlaPorHorimetro,
         }))
         .sort((a, b) => b.litros - a.litros);
 
